@@ -17,8 +17,8 @@ defaultConnectionSettings :: ConnectionSettings
 defaultConnectionSettings = ConnectionSettings
     { connHost     = ""
     , connPort     = 5432
-    , connDatabase = "postgres"
-    , connUser     = "postgres"
+    , connDatabase = "testdb"
+    , connUser     = "v"
     , connPassword = ""
     }
 

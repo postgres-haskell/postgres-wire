@@ -10,6 +10,7 @@ type Oid = Word32
 type TransactionStatus = Word8
 
 data Format = Text | Binary
+    deriving (Show)
 
 data AuthResponse
     = AuthenticationOk
@@ -24,8 +25,6 @@ data AuthResponse
 data ClientMessage
     = Bind PortalName StatementName (V.Vector Format) (V.Vector B.ByteString)
                                     (V.Vector Format)
-    -- TODO
-    -- | CancelRequest
     | Close B.ByteString
     | Describe B.ByteString
     | Execute PortalName Word32
@@ -35,14 +34,15 @@ data ClientMessage
     | Query B.ByteString
     | Sync
     | Terminate
-    -- TODO function call
+
+type Username = B.ByteString
+type DatabaseName = B.ByteString
 
 data StartMessage
-    = StartupMessage ProtocolVersion B.ByteString
+    = StartupMessage Username DatabaseName
     | SSLRequest
 
 
--- TODO COPY subprotocol commands
 
 data ServerMessage
     = BackendKeyData Word32
@@ -72,4 +72,9 @@ data FieldDescription = FieldDescription
     , fieldMode :: Word32
     , fieldFormat :: Format
     } deriving (Show)
+
+-- TODO
+-- | CancelRequest
+-- COPY subprotocol commands
+-- function call
 
