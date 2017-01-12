@@ -1,12 +1,13 @@
 module Database.PostgreSQL.Protocol.Types where
 
 import Data.Word
+import Data.Int
 import qualified Data.ByteString as B
 import qualified Data.Vector as V
 
 type PortalName = B.ByteString
 type StatementName = B.ByteString
-type Oid = Word32
+type Oid = Int32
 -- maybe distinguish sql for extended query and simple query
 type StatementSQL = B.ByteString
 type PasswordText = B.ByteString
@@ -20,6 +21,7 @@ data TransactionStatus
     = TransactionIdle
     | TransactionInProgress
     | TransactionFailed
+    deriving (Show)
 
 data Format = Text | Binary
     deriving (Show)
@@ -34,14 +36,13 @@ data AuthResponse
     | AuthenticationGSS
     | AuthenticationSSPI
     | AuthenticationGSSContinue B.ByteString
+    deriving (Show)
 
 data ClientMessage
     = Bind PortalName StatementName
-        (V.Vector Format)       -- parameter format codes
+        Format                  -- parameter format code, one format for all
         (V.Vector B.ByteString) -- the values of parameters
-        (V.Vector Format)       -- format codes of result,
-                                -- maybe chaneg to one number
-                                -- to apply code to all result columns
+        Format                  -- to apply code to all result columns
     -- Postgres use one command `close` for closing both statements and
     -- portals, but we distinguish them
     | CloseStatement StatementName
@@ -53,10 +54,12 @@ data ClientMessage
     | Execute PortalName
     | Flush
     | Parse StatementName StatementSQL (V.Vector Oid)
+    -- TODO maybe distinguish plain passwords and encrypted
     | PasswordMessage PasswordText
     | Query StatementSQL
     | Sync
     | Terminate
+    deriving (Show)
 
 type Username = B.ByteString
 type DatabaseName = B.ByteString
@@ -64,6 +67,7 @@ type DatabaseName = B.ByteString
 data StartMessage
     = StartupMessage Username DatabaseName
     | SSLRequest
+    deriving (Show)
 
 
 
@@ -117,4 +121,7 @@ data FieldDescription = FieldDescription
 -- * AuthenticationSCMCredential IS deprecated since postgres 9.1
 -- * NOTICE execute command can have number of rows to receive, but we
 --   dont support this feature
+-- * NOTICE bind command can have different formats for parameters and results
+--   but we assume that there will be one format for all. Maybe extend it in
+--   the future.
 

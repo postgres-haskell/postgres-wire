@@ -5,9 +5,12 @@ import Data.Int
 import Data.Monoid
 import Data.ByteString.Lazy as BL
 import Data.ByteString.Builder
+import Data.Foldable
+import qualified Data.Vector as V
 import qualified Data.ByteString as B
 
 import Database.PostgreSQL.Protocol.Types
+
 -- | Protocol Version 3.0, major version in the first word16
 currentVersion :: Int32
 currentVersion = 3 * 256 * 256
@@ -24,8 +27,55 @@ encodeStartMessage (StartupMessage uname dbname) =
 encodeStartMessage SSLRequest = undefined
 
 encodeClientMessage :: ClientMessage -> Builder
-encodeClientMessage = undefined
+encodeClientMessage (Bind portalName stmtName paramFormat values resultFormat)
+    = prependHeader 'B' $
+        pgString portalName <>
+        pgString stmtName <>
+        -- the specified format code is applied to all parameters
+        int16BE 1 <>
+        encodeFormat paramFormat <>
+        int16BE (fromIntegral $ V.length values) <>
+        -- TODO -1 indicates a NULL parameter value. No value bytes
+        -- follow in the NULL case.
+        fold ((\v -> int32BE (fromIntegral $ B.length v) <> byteString v)
+              <$> values) <>
+        -- the specified format code is applied to all result columns (if any)
+        int16BE 1 <>
+        encodeFormat resultFormat
+encodeClientMessage (CloseStatement stmtName)
+    = prependHeader 'C' $ char8 'S' <> pgString stmtName
+encodeClientMessage (ClosePortal portalName)
+    = prependHeader 'C' $ char8 'P' <> pgString portalName
+encodeClientMessage (DescribeStatement stmtName)
+    = prependHeader 'D' $ char8 'S' <> pgString stmtName
+encodeClientMessage (DescribePortal portalName)
+    = prependHeader 'D' $ char8 'P' <> pgString portalName
+encodeClientMessage (Execute portalName)
+    = prependHeader 'E' $
+        pgString portalName <>
+        --Maximum number of rows to return, if portal contains a query that
+        --returns rows (ignored otherwise). Zero denotes "no limit".
+        int32BE 0
+encodeClientMessage Flush
+    = prependHeader 'H' mempty
+encodeClientMessage (Parse stmtName stmt oids)
+    = prependHeader 'P' $
+        pgString stmtName <>
+        pgString stmt <>
+        int16BE (fromIntegral $ V.length oids) <>
+        fold (int32BE <$> oids)
+encodeClientMessage (PasswordMessage passText)
+    = prependHeader 'p' $ pgString passText
+encodeClientMessage (Query stmt)
+    = prependHeader 'Q' $ pgString stmt
+encodeClientMessage Sync
+    = prependHeader 'S' mempty
+encodeClientMessage Terminate
+    = prependHeader 'X' mempty
 
+encodeFormat :: Format -> Builder
+encodeFormat Text   = int32BE 0
+encodeFormat Binary = int32BE 1
 
 ----------
 -- Utils
@@ -35,9 +85,10 @@ encodeClientMessage = undefined
 pgString :: B.ByteString -> Builder
 pgString s = byteString s <> word8 0
 
-prependHeader :: Builder -> Char -> Builder
-prependHeader builder c =
+prependHeader :: Char -> Builder -> Builder
+prependHeader c builder =
     let payload = toLazyByteString builder
-        len = fromIntegral $ BL.length payload
+        -- Length includes itself but not the first message-type byte
+        len = 4 + fromIntegral (BL.length payload)
     in char8 c <> int32BE len <> lazyByteString payload
 
