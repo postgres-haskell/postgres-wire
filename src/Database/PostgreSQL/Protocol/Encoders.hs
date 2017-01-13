@@ -74,8 +74,8 @@ encodeClientMessage Terminate
     = prependHeader 'X' mempty
 
 encodeFormat :: Format -> Builder
-encodeFormat Text   = int32BE 0
-encodeFormat Binary = int32BE 1
+encodeFormat Text   = int16BE 0
+encodeFormat Binary = int16BE 1
 
 ----------
 -- Utils

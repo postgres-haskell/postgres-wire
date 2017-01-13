@@ -48,6 +48,7 @@ decodeServerMessage = do
             getByteString (fromIntegral $ len - 4)
             pure $ ErrorResponse Nothing
         'n' -> pure NoData
+        -- TODO
         'N' -> do
             getByteString (fromIntegral $ len - 4)
             pure $ NoticeResponse Nothing
