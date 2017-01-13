@@ -11,8 +11,8 @@ type Oid = Int32
 -- maybe distinguish sql for extended query and simple query
 type StatementSQL = B.ByteString
 type PasswordText = B.ByteString
-type ServerProccessId = Word32
-type ServerSecretKey = Word32
+type ServerProccessId = Int32
+type ServerSecretKey = Int32
 -- String that identifies which SQL command was completed.
 -- should be more complex in future
 type CommandTag = B.ByteString
@@ -101,13 +101,13 @@ data FieldDescription = FieldDescription
     -- the object ID of the table
     , fieldTableOid :: Oid
     --  the attribute number of the column;
-    , fieldColumnNumber :: Word16
+    , fieldColumnNumber :: Int16
     , fieldTypeOid :: Oid
     -- The data type size (see pg_type.typlen). Note that negative
     -- values denote variable-width types.
-    , fieldSize :: Word16
+    , fieldSize :: Int16
     -- The type modifier (see pg_attribute.atttypmod).
-    , fieldMode :: Word32
+    , fieldMode :: Int32
     -- In a RowDescription returned from the statement variant of Describe,
     -- the format code is not yet known and will always be zero.
     , fieldFormat :: Format

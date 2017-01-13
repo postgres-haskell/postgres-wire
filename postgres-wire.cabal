@@ -19,6 +19,8 @@ library
                      , Database.PostgreSQL.Protocol.Types
                      , Database.PostgreSQL.Protocol.Settings
                      , Database.PostgreSQL.Protocol.Connection
+                     , Database.PostgreSQL.Protocol.Encoders
+                     , Database.PostgreSQL.Protocol.Decoders
   build-depends:       base >= 4.7 && < 5
                      , bytestring
                      , socket
