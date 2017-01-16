@@ -206,6 +206,22 @@ instance Monad Session where
 
     (>>) = (*>)
 
+runSession :: Show a => Session a -> IO a
+runSession (Done x) = do
+    putStrLn $ "Return " ++ show x
+    pure x
+runSession (Receive f) = do
+    putStrLn "Receiving"
+    -- TODO receive here
+    -- x <- receive
+    -- runProgram (f $ decode x)
+    undefined
+runSession (Send _ rs c) = do
+    putStrLn "Sending requests "
+    -- TODO send requests here in batch
+    runSession c
+
+
 -- Type classes
 class Decode a where
     decode :: String -> a
