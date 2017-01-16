@@ -1,5 +1,11 @@
 {-# language OverloadedLists #-}
 {-# language OverloadedStrings #-}
+{-# language DeriveFunctor #-}
+{-# language GADTs #-}
+{-# language ApplicativeDo #-}
+{-# language ExistentialQuantification #-}
+{-# language TypeSynonymInstances #-}
+{-# language FlexibleInstances #-}
 module Database.PostgreSQL.Protocol.Connection where
 
 
@@ -12,7 +18,8 @@ import Data.Foldable
 import Control.Applicative
 import Data.Monoid
 import Control.Concurrent
-import Data.Binary.Get (Decoder(..), runGetIncremental, pushChunk)
+import Data.Binary.Get ( runGetIncremental, pushChunk)
+import qualified Data.Binary.Get as BG (Decoder(..))
 import Data.Maybe (fromJust)
 import qualified Data.Vector as V
 import System.Socket hiding (connect, close)
@@ -27,10 +34,12 @@ import Database.PostgreSQL.Protocol.Settings
 import Database.PostgreSQL.Protocol.Encoders
 import Database.PostgreSQL.Protocol.Decoders
 import Database.PostgreSQL.Protocol.Types
+import Database.PostgreSQL.Protocol.StatementStorage
 
 
 type UnixSocket = Socket Unix Stream Unix
 -- data Connection = Connection (Socket Inet6 Stream TCP)
+-- TODO add statement storage
 data Connection = Connection UnixSocket ThreadId
 
 address :: SocketAddress Unix
@@ -65,7 +74,7 @@ sendMessage sock msg = void $ do
 readAuthMessage :: B.ByteString -> IO ()
 readAuthMessage s =
     case pushChunk (runGetIncremental decodeAuthResponse) s of
-        Done _ _ r -> case r of
+        BG.Done _ _ r -> case r of
             AuthenticationOk -> putStrLn "Auth ok"
             _                -> error "Invalid auth"
         f -> error $ show s
@@ -80,15 +89,14 @@ receiverThread sock = forever $ do
   where
     decoder = runGetIncremental decodeServerMessage
     go str = case pushChunk decoder str of
-        Done rest _ v -> do
+        BG.Done rest _ v -> do
             print v
             unless (B.null rest) $ go rest
-        Partial _ -> error "Partial"
-        Fail _ _ e -> error e
+        BG.Partial _ -> error "Partial"
+        BG.Fail _ _ e -> error e
 
-data QQuery = QQuery
-    { qName :: B.ByteString
-    , qStmt :: B.ByteString
+data QQuery a = QQuery
+    { qStmt :: B.ByteString
     , qOids :: V.Vector Oid
     , qValues :: V.Vector B.ByteString
     } deriving Show
@@ -98,39 +106,113 @@ data QQuery = QQuery
 -- query3 = QQuery "test3" "SELECT $1 + $2" [23, 23] ["3", "3"]
 -- query4 = QQuery "test4" "SELECT $1 + $2" [23, 23] ["4", "3"]
 -- query5 = QQuery "test5" "SELECT $1 + $2" [23, 23] ["5", "3"]
-query1 = QQuery "test1" "select sum(v) from a" [] []
-query2 = QQuery "test2" "select sum(v) from a" [] []
-query3 = QQuery "test3" "select sum(v) from a" [] []
-query4 = QQuery "test4" "select sum(v) from a" [] []
-query5 = QQuery "test5" "select sum(v) from a" [] []
+-- query1 = QQuery "test1" "select sum(v) from a" [] []
+-- query2 = QQuery "test2" "select sum(v) from a" [] []
+-- query3 = QQuery "test3" "select sum(v) from a" [] []
+-- query4 = QQuery "test4" "select sum(v) from a" [] []
+-- query5 = QQuery "test5" "select sum(v) from a" [] []
 
-sendBatch :: Connection -> [QQuery] -> IO ()
-sendBatch (Connection s _) qs = do
-    traverse sendSingle $ take 5 qs
-    sendMessage s $ encodeClientMessage Sync
-  where
-    sendSingle q = do
-        sendMessage s $ encodeClientMessage $
-            Parse (qName q) (qStmt q) (qOids q)
-        sendMessage s $ encodeClientMessage $
-            Bind (qName q) (qName q) Text (qValues q) Text
-        sendMessage s $ encodeClientMessage $ Execute (qName q)
+-- sendBatch :: Connection -> [QQuery] -> IO ()
+-- sendBatch (Connection s _) qs = do
+--     traverse sendSingle $ take 5 qs
+--     sendMessage s $ encodeClientMessage Sync
+--   where
+--     sendSingle q = do
+--         sendMessage s $ encodeClientMessage $
+--             Parse (qName q) (qStmt q) (qOids q)
+--         sendMessage s $ encodeClientMessage $
+--             Bind (qName q) (qName q) Text (qValues q) Text
+--         sendMessage s $ encodeClientMessage $ Execute (qName q)
 
 
-sendQuery :: Connection -> IO ()
-sendQuery (Connection s _) = do
-    sendMessage s $ encodeClientMessage $ Parse "test" "SELECT $1 + $2" [23, 23]
-    sendMessage s $ encodeClientMessage $
-        Bind "test" "test" Text ["2", "3"] Text
-    sendMessage s $ encodeClientMessage $ Execute "test"
-    sendMessage s $ encodeClientMessage Sync
+-- sendQuery :: Connection -> IO ()
+-- sendQuery (Connection s _) = do
+--     sendMessage s $ encodeClientMessage $ Parse "test" "SELECT $1 + $2" [23, 23]
+--     sendMessage s $ encodeClientMessage $
+--         Bind "test" "test" Text ["2", "3"] Text
+--     sendMessage s $ encodeClientMessage $ Execute "test"
+--     sendMessage s $ encodeClientMessage Sync
 
-test :: IO ()
-test = do
-    c <- connect defaultConnectionSettings
-    -- sendQuery c
-    getPOSIXTime >>= \t -> print "Start " >> print t
-    sendBatch c [query1, query2, query3, query4, query5]
-    threadDelay $ 5 * 1000 * 1000
-    close c
+-- test :: IO ()
+-- test = do
+--     c <- connect defaultConnectionSettings
+--     -- sendQuery c
+--     getPOSIXTime >>= \t -> print "Start " >> print t
+--     sendBatch c [query1, query2, query3, query4, query5]
+--     threadDelay $ 5 * 1000 * 1000
+--     close c
+
+
+-- sendBatchAndSync :: IsQuery a => [a] -> Connection -> IO ()
+-- sendBatchAndSync = undefined
+
+-- sendBatchAndFlush :: IsQuery a => [a] -> Connection -> IO ()
+-- sendBatchAndFlush = undefined
+
+-- internal helper
+-- sendBatch :: IsQuery a => [a] -> Connection -> IO ()
+-- sendBatch = undefined
+
+-- Session Monad
+--
+
+data Request = forall a . Request (QQuery a)
+
+query :: Decode a => QQuery a -> Session a
+query q = Send One [Request q] $ Receive Done
+
+data Count = One | Many
+    deriving (Eq, Show)
+
+data Session a
+    = Done a
+    | forall r . Decode r => Receive (r -> Session a)
+    | Send Count [Request] (Session a)
+
+instance Functor Session where
+    f `fmap` (Done a) = Done $ f a
+    f `fmap` (Receive g) = Receive $ fmap f . g
+    f `fmap` (Send n br c) = Send n br (f <$> c)
+
+instance Applicative Session where
+    pure = Done
+
+    f <*> x = case (f, x) of
+        (Done g, Done y) -> Done (g y)
+        (Done g, Receive next) -> Receive $ fmap g . next
+        (Done g, Send n br c) -> Send n br (g <$> c)
+
+        (Send n br c, Done y) -> Send n br (c <*> pure y)
+        (Send n br c, Receive next)
+            -> Send n br $ c <*> Receive next
+        (Send n1 br1 c1, Send n2 br2 c2)
+            -> if n1 == One
+               then Send n2 (br1 <> br2) (c1 <*> c2)
+               else Send n1 br1 (c1 <*> Send n2 br2 c2)
+
+        (Receive next1, Receive next2) ->
+            Receive  $ (\g -> Receive $ (g <*> ) . next2) . next1
+        (Receive next, Done y) -> Receive $ (<*> Done y) . next
+        (Receive next, Send n br c)
+            -> Receive $ (<*> Send n br c) . next
+
+instance Monad Session where
+    return = pure
+
+    m >>= f = case m of
+        Done a -> f a
+        Receive g -> Receive $ (>>=f) . g
+        Send _n br c -> Send Many br (c >>= f)
+
+    (>>) = (*>)
+
+-- Type classes
+class Decode a where
+    decode :: String -> a
+
+instance Decode Integer where
+    decode = read
+
+instance Decode String where
+    decode = id
 
