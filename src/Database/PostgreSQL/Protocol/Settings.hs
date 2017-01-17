@@ -6,19 +6,19 @@ import Data.Word (Word16)
 import Data.ByteString (ByteString)
 
 data ConnectionSettings = ConnectionSettings
-    { connHost     :: ByteString
-    , connPort     :: Word16
-    , connDatabase :: ByteString
-    , connUser     :: ByteString
-    , connPassword :: ByteString
+    { settingsHost     :: ByteString
+    , settingsPort     :: Word16
+    , settingsDatabase :: ByteString
+    , settingsUser     :: ByteString
+    , settingsPassword :: ByteString
     } deriving (Show)
 
 defaultConnectionSettings :: ConnectionSettings
 defaultConnectionSettings = ConnectionSettings
-    { connHost     = ""
-    , connPort     = 5432
-    , connDatabase = "testdb"
-    , connUser     = "v"
-    , connPassword = ""
+    { settingsHost     = ""
+    , settingsPort     = 5432
+    , settingsDatabase = "testdb"
+    , settingsUser     = "v"
+    , settingsPassword = ""
     }
 
