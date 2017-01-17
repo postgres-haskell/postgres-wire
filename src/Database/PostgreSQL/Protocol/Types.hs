@@ -1,7 +1,7 @@
 module Database.PostgreSQL.Protocol.Types where
 
-import Data.Word
-import Data.Int
+import Data.Word (Word32, Word8)
+import Data.Int (Int32)
 import qualified Data.ByteString as B
 import qualified Data.Vector as V
 
@@ -26,6 +26,22 @@ newtype ServerSecretKey  = ServerSecrecKey Int32 deriving (Show)
 -- TODO
 type CommandTag = B.ByteString
 
+-- | Parameters of the current connection.
+-- We store only the parameters that cannot change after startup.
+-- For more information about additional parameters see documentation.
+data ConnectionParameters = ConnectionParameters
+    { paramServerVersion    :: ServerVersion
+    , paramServerEncoding   :: B.ByteString -- ^ character set name
+    , paramIntegerDatetimes :: Bool         -- ^ True if integer datetimes used
+    } deriving (Show)
+
+-- | Server version contains major, minor, revision numbers.
+data ServerVersion = ServerVersion Word8 Word8 Word8
+
+instance Show ServerVersion where
+    show (ServerVersion major minor revision) =
+        show major ++ "." ++ show minor ++ "." ++ show revision
+
 data TransactionStatus
     = TransactionIdle
     | TransactionInProgress
@@ -37,13 +53,13 @@ data Format = Text | Binary
 
 -- All the commands have the same names as presented in the official
 -- postgres documentation except explicit exclusions
--- TODO improve
 data AuthResponse
     = AuthenticationOk
     | AuthenticationCleartextPassword
     | AuthenticationMD5Password MD5Salt
     | AuthenticationGSS
     | AuthenticationSSPI
+    -- TODO improve
     | AuthenticationGSSContinue B.ByteString
     deriving (Show)
 
@@ -128,7 +144,7 @@ data FieldDescription = FieldDescription {
 -- * NOTICE execute command can have number of rows to receive, but we
 --   dont support this feature
 -- * NOTICE bind command can have different formats for parameters and results
---   but we assume that there will be one format for all. Maybe extend it in
---   the future.
+--   but we assume that there will be one format for all.
 -- * Simple query protocol is not supported
+-- * We dont store parameters of connection that may change after startup
 
