@@ -5,16 +5,25 @@ import Data.Int
 import qualified Data.ByteString as B
 import qualified Data.Vector as V
 
-type PortalName = B.ByteString
-type StatementName = B.ByteString
-type Oid = Int32
--- maybe distinguish sql for extended query and simple query
-type StatementSQL = B.ByteString
-type PasswordText = B.ByteString
-type ServerProccessId = Int32
-type ServerSecretKey = Int32
+-- Common
+newtype Oid           = Oid Int32                   deriving (Show)
+newtype StatementName = StatementName B.ByteString  deriving (Show)
+newtype StatementSQL  = StatementSQL B.ByteString   deriving (Show)
+newtype PortalName    = PortalName B.ByteString     deriving (Show)
+newtype ChannelName   = ChannelName B.ByteString    deriving (Show)
+
+-- Startup phase
+newtype Username     = Username B.ByteString     deriving (Show)
+newtype DatabaseName = DatabaseName B.ByteString deriving (Show)
+newtype PasswordText = PasswordText B.ByteString deriving (Show)
+newtype MD5Salt      = MD5Salt Word32            deriving (Show)
+
+newtype ServerProccessId = ServerProcessId Int32 deriving (Show)
+newtype ServerSecretKey  = ServerSecrecKey Int32 deriving (Show)
+
 -- String that identifies which SQL command was completed.
 -- should be more complex in future
+-- TODO
 type CommandTag = B.ByteString
 
 data TransactionStatus
@@ -32,7 +41,7 @@ data Format = Text | Binary
 data AuthResponse
     = AuthenticationOk
     | AuthenticationCleartextPassword
-    | AuthenticationMD5Password Word32
+    | AuthenticationMD5Password MD5Salt
     | AuthenticationGSS
     | AuthenticationSSPI
     | AuthenticationGSSContinue B.ByteString
@@ -56,20 +65,14 @@ data ClientMessage
     | Parse StatementName StatementSQL (V.Vector Oid)
     -- TODO maybe distinguish plain passwords and encrypted
     | PasswordMessage PasswordText
-    | Query StatementSQL
     | Sync
     | Terminate
     deriving (Show)
-
-type Username = B.ByteString
-type DatabaseName = B.ByteString
 
 data StartMessage
     = StartupMessage Username DatabaseName
     | SSLRequest
     deriving (Show)
-
-
 
 data ServerMessage
     = BackendKeyData ServerProccessId ServerSecretKey
@@ -85,10 +88,11 @@ data ServerMessage
     | NoticeResponse (Maybe B.ByteString)
     | NotificationResponse
         ServerProccessId
-        B.ByteString -- the name of the channel
+        ChannelName
         B.ByteString -- payload - does not have structure
     | ParameterDescription (V.Vector Oid)
     -- parameter name and its value
+    -- TODO improve
     | ParameterStatus B.ByteString B.ByteString
     | ParseComplete
     | PortalSuspended
@@ -96,12 +100,14 @@ data ServerMessage
     | RowDescription (V.Vector FieldDescription)
     deriving (Show)
 
-data FieldDescription = FieldDescription
-    { fieldName :: B.ByteString
+data FieldDescription = FieldDescription {
+    -- the name
+      fieldName :: B.ByteString
     -- the object ID of the table
     , fieldTableOid :: Oid
     --  the attribute number of the column;
     , fieldColumnNumber :: Int16
+    -- Oid type
     , fieldTypeOid :: Oid
     -- The data type size (see pg_type.typlen). Note that negative
     -- values denote variable-width types.
@@ -124,4 +130,5 @@ data FieldDescription = FieldDescription
 -- * NOTICE bind command can have different formats for parameters and results
 --   but we assume that there will be one format for all. Maybe extend it in
 --   the future.
+-- * Simple query protocol is not supported
 
