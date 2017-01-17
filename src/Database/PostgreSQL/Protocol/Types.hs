@@ -21,10 +21,20 @@ newtype MD5Salt      = MD5Salt Word32            deriving (Show)
 newtype ServerProccessId = ServerProcessId Int32 deriving (Show)
 newtype ServerSecretKey  = ServerSecrecKey Int32 deriving (Show)
 
--- String that identifies which SQL command was completed.
--- should be more complex in future
--- TODO
-type CommandTag = B.ByteString
+-- FIXME maybe wrap in newtype
+type RowsCount = Word
+
+-- | Information about completed command.
+data CommandResult
+    --  oid is the object ID of the inserted row if rows is 1 and
+    --  the target table has OIDs; otherwise oid is 0.
+    = InsertCompleted Oid RowsCount
+    | DeleteCompleted RowsCount
+    | UpdateCompleted RowsCount
+    | SelectCompleted RowsCount
+    | MoveCompleted RowsCount
+    | FetchCompleted RowsCount
+    | CopyCompleted RowsCount
 
 -- | Parameters of the current connection.
 -- We store only the parameters that cannot change after startup.
