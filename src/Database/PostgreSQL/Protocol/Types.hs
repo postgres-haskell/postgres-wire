@@ -21,8 +21,7 @@ newtype MD5Salt      = MD5Salt Word32            deriving (Show)
 newtype ServerProccessId = ServerProcessId Int32 deriving (Show)
 newtype ServerSecretKey  = ServerSecrecKey Int32 deriving (Show)
 
--- FIXME maybe wrap in newtype
-type RowsCount = Word
+newtype RowsCount = RowsCount Word
 
 -- | Information about completed command.
 data CommandResult
@@ -32,9 +31,9 @@ data CommandResult
     | DeleteCompleted RowsCount
     | UpdateCompleted RowsCount
     | SelectCompleted RowsCount
-    | MoveCompleted RowsCount
-    | FetchCompleted RowsCount
-    | CopyCompleted RowsCount
+    | MoveCompleted   RowsCount
+    | FetchCompleted  RowsCount
+    | CopyCompleted   RowsCount
 
 -- | Parameters of the current connection.
 -- We store only the parameters that cannot change after startup.
@@ -82,7 +81,7 @@ data ClientMessage
     -- portals, but we distinguish them
     | CloseStatement StatementName
     | ClosePortal PortalName
-    -- Postgres use one commande `describe` for describing both statements
+    -- Postgres use one command `describe` for describing both statements
     -- and portals, but we distinguish them
     | DescribeStatement StatementName
     | DescribePortal PortalName
@@ -91,6 +90,8 @@ data ClientMessage
     | Parse StatementName StatementSQL (V.Vector Oid)
     -- TODO maybe distinguish plain passwords and encrypted
     | PasswordMessage PasswordText
+    -- PostgreSQL names it `Query`
+    | SimpleQuery StatementSQL
     | Sync
     | Terminate
     deriving (Show)
@@ -107,18 +108,16 @@ data ServerMessage
     | CommandComplete CommandTag
     | DataRow (V.Vector B.ByteString) -- the values of a result
     | EmptyQueryResponse
-    -- TODO change to list of error fields
-    | ErrorResponse (Maybe B.ByteString)
+    | ErrorResponse ErrorDesc
     | NoData
-    -- TODO change to list of fields
-    | NoticeResponse (Maybe B.ByteString)
+    -- We dont store content of notice at all
+    | NoticeResponse
     | NotificationResponse
         ServerProccessId
         ChannelName
         B.ByteString -- payload - does not have structure
     | ParameterDescription (V.Vector Oid)
     -- parameter name and its value
-    -- TODO improve
     | ParameterStatus B.ByteString B.ByteString
     | ParseComplete
     | PortalSuspended
@@ -145,6 +144,27 @@ data FieldDescription = FieldDescription {
     , fieldFormat :: Format
     } deriving (Show)
 
+data ErrorSeverity
+    = SeverityError
+    | SeverityFatal
+    | SeverityPanic
+    | UnknownErrorSeverity
+    deriving (Show, Eq)
+
+data ErrorDesc = ErrorDesc
+    { errorSeverity   :: ErrorSeverity
+    , errorCode       :: B.ByteString
+    , errorMessage    :: B.ByteString
+    , errorDetail     :: Maybe B.ByteString
+    , errorHint       :: Maybe B.ByteString
+    , errorQuery      :: Maybe B.ByteString
+    , errorSchema     :: Maybe B.ByteString
+    , errorTable      :: Maybe B.ByteString
+    , errorColumn     :: Maybe B.ByteString
+    , errorDataType   :: Maybe B.ByteString
+    , errorConstraint :: Maybe B.ByteString
+    } deriving (Show)
+
 -- TODO
 -- * CancelRequest
 -- * COPY subprotocol commands
@@ -155,6 +175,7 @@ data FieldDescription = FieldDescription {
 --   dont support this feature
 -- * NOTICE bind command can have different formats for parameters and results
 --   but we assume that there will be one format for all.
--- * Simple query protocol is not supported
 -- * We dont store parameters of connection that may change after startup
+-- * We dont store all possible message fields in error|notice responses
+-- * We dont parse content of notice response
 
