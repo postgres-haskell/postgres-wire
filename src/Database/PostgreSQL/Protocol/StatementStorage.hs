@@ -22,7 +22,7 @@ storageStatement :: StatementStorage -> StatementSQL -> IO StatementName
 storageStatement (StatementStorage table counter) stmt = do
     n <- readIORef counter
     writeIORef counter $ n + 1
-    let name = pack $ show n
-    H.insert table name stmt
+    let name = StatementName . pack $ show n
+    H.insert table stmt name
     pure name
 

@@ -17,21 +17,23 @@ currentVersion = 3 * 256 * 256
 
 encodeStartMessage :: StartMessage -> Builder
 -- Options except user and database are not supported
-encodeStartMessage (StartupMessage uname dbname) =
+encodeStartMessage (StartupMessage (Username uname) (DatabaseName dbname)) =
     int32BE (len + 4) <> payload
   where
     len     = fromIntegral $ BL.length $ toLazyByteString payload
     payload = int32BE currentVersion <>
               pgString "user" <> pgString uname <>
               pgString "database" <> pgString dbname <> word8 0
+              -- TODO
 encodeStartMessage SSLRequest = undefined
 
 encodeClientMessage :: ClientMessage -> Builder
-encodeClientMessage (Bind portalName stmtName paramFormat values resultFormat)
+encodeClientMessage (Bind (PortalName portalName) (StatementName stmtName)
+                     paramFormat values resultFormat)
     = prependHeader 'B' $
         pgString portalName <>
         pgString stmtName <>
-        -- the specified format code is applied to all parameters
+        -- `1` means that the specified format code is applied to all parameters
         int16BE 1 <>
         encodeFormat paramFormat <>
         int16BE (fromIntegral $ V.length values) <>
@@ -39,18 +41,19 @@ encodeClientMessage (Bind portalName stmtName paramFormat values resultFormat)
         -- follow in the NULL case.
         fold ((\v -> int32BE (fromIntegral $ B.length v) <> byteString v)
               <$> values) <>
-        -- the specified format code is applied to all result columns (if any)
+        -- `1` means that the specified format code is applied to all
+        -- result columns (if any)
         int16BE 1 <>
         encodeFormat resultFormat
-encodeClientMessage (CloseStatement stmtName)
+encodeClientMessage (CloseStatement (StatementName stmtName))
     = prependHeader 'C' $ char8 'S' <> pgString stmtName
-encodeClientMessage (ClosePortal portalName)
+encodeClientMessage (ClosePortal (PortalName portalName))
     = prependHeader 'C' $ char8 'P' <> pgString portalName
-encodeClientMessage (DescribeStatement stmtName)
+encodeClientMessage (DescribeStatement (StatementName stmtName))
     = prependHeader 'D' $ char8 'S' <> pgString stmtName
-encodeClientMessage (DescribePortal portalName)
+encodeClientMessage (DescribePortal (PortalName portalName))
     = prependHeader 'D' $ char8 'P' <> pgString portalName
-encodeClientMessage (Execute portalName)
+encodeClientMessage (Execute (PortalName portalName))
     = prependHeader 'E' $
         pgString portalName <>
         --Maximum number of rows to return, if portal contains a query that
@@ -58,15 +61,15 @@ encodeClientMessage (Execute portalName)
         int32BE 0
 encodeClientMessage Flush
     = prependHeader 'H' mempty
-encodeClientMessage (Parse stmtName stmt oids)
+encodeClientMessage (Parse (StatementName stmtName) (StatementSQL stmt) oids)
     = prependHeader 'P' $
         pgString stmtName <>
         pgString stmt <>
         int16BE (fromIntegral $ V.length oids) <>
-        fold (int32BE <$> oids)
-encodeClientMessage (PasswordMessage passText)
+        fold (int32BE . unOid <$> oids)
+encodeClientMessage (PasswordMessage (PasswordText passText))
     = prependHeader 'p' $ pgString passText
-encodeClientMessage (Query stmt)
+encodeClientMessage (SimpleQuery (StatementSQL stmt))
     = prependHeader 'Q' $ pgString stmt
 encodeClientMessage Sync
     = prependHeader 'S' mempty

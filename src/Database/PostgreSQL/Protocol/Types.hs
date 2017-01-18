@@ -1,14 +1,15 @@
 module Database.PostgreSQL.Protocol.Types where
 
 import Data.Word (Word32, Word8)
-import Data.Int (Int32)
+import Data.Int (Int32, Int16)
+import Data.Hashable (Hashable)
 import qualified Data.ByteString as B
 import qualified Data.Vector as V
 
 -- Common
-newtype Oid           = Oid Int32                   deriving (Show)
+newtype Oid           = Oid { unOid :: Int32 }      deriving (Show)
 newtype StatementName = StatementName B.ByteString  deriving (Show)
-newtype StatementSQL  = StatementSQL B.ByteString   deriving (Show)
+newtype StatementSQL  = StatementSQL B.ByteString   deriving (Show, Eq, Hashable)
 newtype PortalName    = PortalName B.ByteString     deriving (Show)
 newtype ChannelName   = ChannelName B.ByteString    deriving (Show)
 
@@ -21,7 +22,7 @@ newtype MD5Salt      = MD5Salt Word32            deriving (Show)
 newtype ServerProccessId = ServerProcessId Int32 deriving (Show)
 newtype ServerSecretKey  = ServerSecrecKey Int32 deriving (Show)
 
-newtype RowsCount = RowsCount Word
+newtype RowsCount = RowsCount Word deriving (Show)
 
 -- | Information about completed command.
 data CommandResult
@@ -34,6 +35,7 @@ data CommandResult
     | MoveCompleted   RowsCount
     | FetchCompleted  RowsCount
     | CopyCompleted   RowsCount
+    deriving (Show)
 
 -- | Parameters of the current connection.
 -- We store only the parameters that cannot change after startup.
@@ -105,7 +107,7 @@ data ServerMessage
     = BackendKeyData ServerProccessId ServerSecretKey
     | BindComplete
     | CloseComplete
-    | CommandComplete CommandTag
+    | CommandComplete CommandResult
     | DataRow (V.Vector B.ByteString) -- the values of a result
     | EmptyQueryResponse
     | ErrorResponse ErrorDesc
@@ -175,7 +177,7 @@ data ErrorDesc = ErrorDesc
     , errorDataType         :: Maybe B.ByteString
     , errorConstraint       :: Maybe B.ByteString
     , errorSourceFilename   :: Maybe B.ByteString
-    , errorSourceLine       :: Maybe B.Int
+    , errorSourceLine       :: Maybe Int
     , errorRoutine          :: Maybe B.ByteString
     } deriving (Show)
 
@@ -195,7 +197,7 @@ data NoticeDesc = NoticeDesc
     , noticeDataType         :: Maybe B.ByteString
     , noticeConstraint       :: Maybe B.ByteString
     , noticeSourceFilename   :: Maybe B.ByteString
-    , noticeSourceLine       :: Maybe B.Int
+    , noticeSourceLine       :: Maybe Int
     , noticeRoutine          :: Maybe B.ByteString
     } deriving (Show)
 
