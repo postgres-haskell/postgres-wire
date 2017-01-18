@@ -110,8 +110,7 @@ data ServerMessage
     | EmptyQueryResponse
     | ErrorResponse ErrorDesc
     | NoData
-    -- We dont store content of notice at all
-    | NoticeResponse
+    | NoticeResponse NoticeDesc
     | NotificationResponse
         ServerProccessId
         ChannelName
@@ -130,7 +129,7 @@ data FieldDescription = FieldDescription {
       fieldName :: B.ByteString
     -- the object ID of the table
     , fieldTableOid :: Oid
-    --  the attribute number of the column;
+    --  the attribute number of the column
     , fieldColumnNumber :: Int16
     -- Oid type
     , fieldTypeOid :: Oid
@@ -151,18 +150,53 @@ data ErrorSeverity
     | UnknownErrorSeverity
     deriving (Show, Eq)
 
+data NoticeSeverity
+    = SeverityWarning
+    | SeverityNotice
+    | SeverityDebug
+    | SeverityInfo
+    | SeverityLog
+    | UnknownNoticeSeverity
+    deriving (Show, Eq)
+
 data ErrorDesc = ErrorDesc
-    { errorSeverity   :: ErrorSeverity
-    , errorCode       :: B.ByteString
-    , errorMessage    :: B.ByteString
-    , errorDetail     :: Maybe B.ByteString
-    , errorHint       :: Maybe B.ByteString
-    , errorQuery      :: Maybe B.ByteString
-    , errorSchema     :: Maybe B.ByteString
-    , errorTable      :: Maybe B.ByteString
-    , errorColumn     :: Maybe B.ByteString
-    , errorDataType   :: Maybe B.ByteString
-    , errorConstraint :: Maybe B.ByteString
+    { errorSeverity         :: ErrorSeverity
+    , errorCode             :: B.ByteString
+    , errorMessage          :: B.ByteString
+    , errorDetail           :: Maybe B.ByteString
+    , errorHint             :: Maybe B.ByteString
+    , errorPosition         :: Maybe Int
+    , errorInternalPosition :: Maybe Int
+    , errorInternalQuery    :: Maybe B.ByteString
+    , errorContext          :: Maybe B.ByteString
+    , errorSchema           :: Maybe B.ByteString
+    , errorTable            :: Maybe B.ByteString
+    , errorColumn           :: Maybe B.ByteString
+    , errorDataType         :: Maybe B.ByteString
+    , errorConstraint       :: Maybe B.ByteString
+    , errorSourceFilename   :: Maybe B.ByteString
+    , errorSourceLine       :: Maybe B.Int
+    , errorRoutine          :: Maybe B.ByteString
+    } deriving (Show)
+
+data NoticeDesc = NoticeDesc
+    { noticeSeverity         :: NoticeSeverity
+    , noticeCode             :: B.ByteString
+    , noticeMessage          :: B.ByteString
+    , noticeDetail           :: Maybe B.ByteString
+    , noticeHint             :: Maybe B.ByteString
+    , noticePosition         :: Maybe Int
+    , noticeInternalPosition :: Maybe Int
+    , noticeInternalQuery    :: Maybe B.ByteString
+    , noticeContext          :: Maybe B.ByteString
+    , noticeSchema           :: Maybe B.ByteString
+    , noticeTable            :: Maybe B.ByteString
+    , noticeColumn           :: Maybe B.ByteString
+    , noticeDataType         :: Maybe B.ByteString
+    , noticeConstraint       :: Maybe B.ByteString
+    , noticeSourceFilename   :: Maybe B.ByteString
+    , noticeSourceLine       :: Maybe B.Int
+    , noticeRoutine          :: Maybe B.ByteString
     } deriving (Show)
 
 -- TODO
@@ -176,6 +210,4 @@ data ErrorDesc = ErrorDesc
 -- * NOTICE bind command can have different formats for parameters and results
 --   but we assume that there will be one format for all.
 -- * We dont store parameters of connection that may change after startup
--- * We dont store all possible message fields in error|notice responses
--- * We dont parse content of notice response
 

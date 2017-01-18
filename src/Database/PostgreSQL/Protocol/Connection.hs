@@ -45,6 +45,7 @@ data Connection = Connection
     , connReceiverThread     :: ThreadId
     , connOutChan            :: OutChan ServerMessage
     , connStatementStorage   :: StatementStorage
+    , connParameters         :: ConnectionParameters
     }
 
 address :: SocketAddress Unix
