@@ -11,21 +11,20 @@ import qualified Data.ByteString as B
 
 import Database.PostgreSQL.Protocol.Types
 
--- | Protocol Version 3.0, major version in the first word16
+-- | Protocol Version 3.0, major version in the first word16.
 currentVersion :: Int32
 currentVersion = 3 * 256 * 256
 
 encodeStartMessage :: StartMessage -> Builder
--- Options except user and database are not supported
-encodeStartMessage (StartupMessage (Username uname) (DatabaseName dbname)) =
-    int32BE (len + 4) <> payload
+encodeStartMessage (StartupMessage (Username uname) (DatabaseName dbname))
+    = int32BE (len + 4) <> payload
   where
     len     = fromIntegral $ BL.length $ toLazyByteString payload
     payload = int32BE currentVersion <>
               pgString "user" <> pgString uname <>
               pgString "database" <> pgString dbname <> word8 0
-              -- TODO
-encodeStartMessage SSLRequest = undefined
+encodeStartMessage SSLRequest
+    = int32BE 8 <> int32BE 80877103 -- value hardcoded by PostgreSQL docs.
 
 encodeClientMessage :: ClientMessage -> Builder
 encodeClientMessage (Bind (PortalName portalName) (StatementName stmtName)
@@ -53,12 +52,10 @@ encodeClientMessage (DescribeStatement (StatementName stmtName))
     = prependHeader 'D' $ char8 'S' <> pgString stmtName
 encodeClientMessage (DescribePortal (PortalName portalName))
     = prependHeader 'D' $ char8 'P' <> pgString portalName
-encodeClientMessage (Execute (PortalName portalName))
+encodeClientMessage (Execute (PortalName portalName) (RowsToReceive rows))
     = prependHeader 'E' $
         pgString portalName <>
-        --Maximum number of rows to return, if portal contains a query that
-        --returns rows (ignored otherwise). Zero denotes "no limit".
-        int32BE 0
+        int32BE rows
 encodeClientMessage Flush
     = prependHeader 'H' mempty
 encodeClientMessage (Parse (StatementName stmtName) (StatementSQL stmt) oids)
@@ -67,8 +64,11 @@ encodeClientMessage (Parse (StatementName stmtName) (StatementSQL stmt) oids)
         pgString stmt <>
         int16BE (fromIntegral $ V.length oids) <>
         fold (int32BE . unOid <$> oids)
-encodeClientMessage (PasswordMessage (PasswordText passText))
-    = prependHeader 'p' $ pgString passText
+encodeClientMessage (PasswordMessage passtext)
+    = prependHeader 'p' $ pgString $ getPassword passtext
+      where
+        getPassword (PasswordPlain p) = p
+        getPassword (PasswordMD5 p) = p
 encodeClientMessage (SimpleQuery (StatementSQL stmt))
     = prependHeader 'Q' $ pgString stmt
 encodeClientMessage Sync

@@ -27,6 +27,9 @@ newtype ServerProcessId = ServerProcessId Int32 deriving (Show)
 newtype ServerSecretKey  = ServerSecretKey Int32 deriving (Show)
 
 newtype RowsCount = RowsCount Word deriving (Show)
+
+-- | Maximum number of rows to return, if portal contains a query that
+-- returns rows (ignored otherwise). Zero denotes "no limit".
 newtype RowsToReceive = RowsToReceive Int32 deriving (Show)
 
 -- | Information about completed command.
@@ -73,6 +76,11 @@ data Format = Text | Binary
 
 -- All the commands have the same names as presented in the official
 -- postgres documentation except explicit exclusions.
+--
+data StartMessage
+    = StartupMessage Username DatabaseName
+    | SSLRequest
+    deriving (Show)
 
 data AuthResponse
     = AuthenticationOk
@@ -107,11 +115,6 @@ data ClientMessage
     deriving (Show)
 
 data CancelRequest = CancelRequest ServerProcessId ServerSecretKey
-    deriving (Show)
-
-data StartMessage
-    = StartupMessage Username DatabaseName
-    | SSLRequest
     deriving (Show)
 
 data ServerMessage
