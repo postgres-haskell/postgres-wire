@@ -3,26 +3,31 @@ module Database.PostgreSQL.Protocol.Types where
 import Data.Word (Word32, Word8)
 import Data.Int (Int32, Int16)
 import Data.Hashable (Hashable)
-import qualified Data.ByteString as B
-import qualified Data.Vector as V
+import Data.ByteString (ByteString)
+import Data.Vector (Vector)
 
 -- Common
-newtype Oid           = Oid { unOid :: Int32 }      deriving (Show)
-newtype StatementName = StatementName B.ByteString  deriving (Show)
-newtype StatementSQL  = StatementSQL B.ByteString   deriving (Show, Eq, Hashable)
-newtype PortalName    = PortalName B.ByteString     deriving (Show)
-newtype ChannelName   = ChannelName B.ByteString    deriving (Show)
+newtype Oid           = Oid { unOid :: Int32 }    deriving (Show)
+newtype StatementName = StatementName ByteString  deriving (Show)
+newtype StatementSQL  = StatementSQL ByteString   deriving (Show, Eq, Hashable)
+newtype PortalName    = PortalName ByteString     deriving (Show)
+newtype ChannelName   = ChannelName ByteString    deriving (Show)
 
 -- Startup phase
-newtype Username     = Username B.ByteString     deriving (Show)
-newtype DatabaseName = DatabaseName B.ByteString deriving (Show)
-newtype PasswordText = PasswordText B.ByteString deriving (Show)
-newtype MD5Salt      = MD5Salt Word32            deriving (Show)
+newtype Username     = Username ByteString     deriving (Show)
+newtype DatabaseName = DatabaseName ByteString deriving (Show)
+newtype MD5Salt      = MD5Salt ByteString      deriving (Show)
 
-newtype ServerProccessId = ServerProcessId Int32 deriving (Show)
-newtype ServerSecretKey  = ServerSecrecKey Int32 deriving (Show)
+data PasswordText
+    = PasswordPlain ByteString
+    | PasswordMD5 ByteString
+    deriving (Show)
+
+newtype ServerProcessId = ServerProcessId Int32 deriving (Show)
+newtype ServerSecretKey  = ServerSecretKey Int32 deriving (Show)
 
 newtype RowsCount = RowsCount Word deriving (Show)
+newtype RowsToReceive = RowsToReceive Int32 deriving (Show)
 
 -- | Information about completed command.
 data CommandResult
@@ -42,7 +47,7 @@ data CommandResult
 -- For more information about additional parameters see documentation.
 data ConnectionParameters = ConnectionParameters
     { paramServerVersion    :: ServerVersion
-    , paramServerEncoding   :: B.ByteString -- ^ character set name
+    , paramServerEncoding   :: ByteString   -- ^ character set name
     , paramIntegerDatetimes :: Bool         -- ^ True if integer datetimes used
     } deriving (Show)
 
@@ -54,8 +59,12 @@ instance Show ServerVersion where
         show major ++ "." ++ show minor ++ "." ++ show revision
 
 data TransactionStatus
+    -- | not in a transaction block
     = TransactionIdle
-    | TransactionInProgress
+    -- | in a transaction block
+    | TransactionInBlock
+    -- | in a failed transaction block
+    -- (queries will be rejected until block is ended)
     | TransactionFailed
     deriving (Show)
 
@@ -63,21 +72,21 @@ data Format = Text | Binary
     deriving (Show)
 
 -- All the commands have the same names as presented in the official
--- postgres documentation except explicit exclusions
+-- postgres documentation except explicit exclusions.
+
 data AuthResponse
     = AuthenticationOk
     | AuthenticationCleartextPassword
     | AuthenticationMD5Password MD5Salt
     | AuthenticationGSS
     | AuthenticationSSPI
-    -- TODO improve
-    | AuthenticationGSSContinue B.ByteString
+    | AuthenticationGSSContinue ByteString
     deriving (Show)
 
 data ClientMessage
     = Bind PortalName StatementName
         Format                  -- parameter format code, one format for all
-        (V.Vector B.ByteString) -- the values of parameters
+        (Vector ByteString) -- the values of parameters
         Format                  -- to apply code to all result columns
     -- Postgres use one command `close` for closing both statements and
     -- portals, but we distinguish them
@@ -87,15 +96,17 @@ data ClientMessage
     -- and portals, but we distinguish them
     | DescribeStatement StatementName
     | DescribePortal PortalName
-    | Execute PortalName
+    | Execute PortalName RowsToReceive
     | Flush
-    | Parse StatementName StatementSQL (V.Vector Oid)
-    -- TODO maybe distinguish plain passwords and encrypted
+    | Parse StatementName StatementSQL (Vector Oid)
     | PasswordMessage PasswordText
     -- PostgreSQL names it `Query`
     | SimpleQuery StatementSQL
     | Sync
     | Terminate
+    deriving (Show)
+
+data CancelRequest = CancelRequest ServerProcessId ServerSecretKey
     deriving (Show)
 
 data StartMessage
@@ -104,44 +115,49 @@ data StartMessage
     deriving (Show)
 
 data ServerMessage
-    = BackendKeyData ServerProccessId ServerSecretKey
+    = BackendKeyData ServerProcessId ServerSecretKey
     | BindComplete
     | CloseComplete
     | CommandComplete CommandResult
-    | DataRow (V.Vector B.ByteString) -- the values of a result
+    | DataRow (Vector ByteString)
     | EmptyQueryResponse
     | ErrorResponse ErrorDesc
     | NoData
     | NoticeResponse NoticeDesc
-    | NotificationResponse
-        ServerProccessId
-        ChannelName
-        B.ByteString -- payload - does not have structure
-    | ParameterDescription (V.Vector Oid)
-    -- parameter name and its value
-    | ParameterStatus B.ByteString B.ByteString
+    | NotificationResponse Notification
+    | ParameterDescription (Vector Oid)
+    | ParameterStatus ByteString ByteString -- name and value
     | ParseComplete
     | PortalSuspended
     | ReadForQuery TransactionStatus
-    | RowDescription (V.Vector FieldDescription)
+    | RowDescription (Vector FieldDescription)
     deriving (Show)
 
+data Notification = Notification
+    { notificationProcessId :: ServerProcessId
+    , notificationChannel   :: ChannelName
+    , notificationPayload   :: ByteString
+    } deriving (Show)
+
 data FieldDescription = FieldDescription {
-    -- the name
-      fieldName :: B.ByteString
-    -- the object ID of the table
+    -- | the field name
+      fieldName :: ByteString
+    -- | If the field can be identified as a column of a specific table,
+    -- the object ID of the table; otherwise zero.
     , fieldTableOid :: Oid
-    --  the attribute number of the column
+    --  | If the field can be identified as a column of a specific table,
+    --  the attribute number of the column; otherwise zero.
     , fieldColumnNumber :: Int16
-    -- Oid type
+    -- | The object ID of the field's data type.
     , fieldTypeOid :: Oid
-    -- The data type size (see pg_type.typlen). Note that negative
+    -- | The data type size (see pg_type.typlen). Note that negative
     -- values denote variable-width types.
     , fieldSize :: Int16
-    -- The type modifier (see pg_attribute.atttypmod).
+    -- | The type modifier (see pg_attribute.atttypmod).
     , fieldMode :: Int32
-    -- In a RowDescription returned from the statement variant of Describe,
-    -- the format code is not yet known and will always be zero.
+    -- | The format code being used for the field. In a RowDescription
+    -- returned from the statement variant of Describe, the format code
+    -- is not yet known and will always be zero.
     , fieldFormat :: Format
     } deriving (Show)
 
@@ -163,52 +179,49 @@ data NoticeSeverity
 
 data ErrorDesc = ErrorDesc
     { errorSeverity         :: ErrorSeverity
-    , errorCode             :: B.ByteString
-    , errorMessage          :: B.ByteString
-    , errorDetail           :: Maybe B.ByteString
-    , errorHint             :: Maybe B.ByteString
+    , errorCode             :: ByteString
+    , errorMessage          :: ByteString
+    , errorDetail           :: Maybe ByteString
+    , errorHint             :: Maybe ByteString
     , errorPosition         :: Maybe Int
     , errorInternalPosition :: Maybe Int
-    , errorInternalQuery    :: Maybe B.ByteString
-    , errorContext          :: Maybe B.ByteString
-    , errorSchema           :: Maybe B.ByteString
-    , errorTable            :: Maybe B.ByteString
-    , errorColumn           :: Maybe B.ByteString
-    , errorDataType         :: Maybe B.ByteString
-    , errorConstraint       :: Maybe B.ByteString
-    , errorSourceFilename   :: Maybe B.ByteString
+    , errorInternalQuery    :: Maybe ByteString
+    , errorContext          :: Maybe ByteString
+    , errorSchema           :: Maybe ByteString
+    , errorTable            :: Maybe ByteString
+    , errorColumn           :: Maybe ByteString
+    , errorDataType         :: Maybe ByteString
+    , errorConstraint       :: Maybe ByteString
+    , errorSourceFilename   :: Maybe ByteString
     , errorSourceLine       :: Maybe Int
-    , errorRoutine          :: Maybe B.ByteString
+    , errorSourceRoutine    :: Maybe ByteString
     } deriving (Show)
 
 data NoticeDesc = NoticeDesc
     { noticeSeverity         :: NoticeSeverity
-    , noticeCode             :: B.ByteString
-    , noticeMessage          :: B.ByteString
-    , noticeDetail           :: Maybe B.ByteString
-    , noticeHint             :: Maybe B.ByteString
+    , noticeCode             :: ByteString
+    , noticeMessage          :: ByteString
+    , noticeDetail           :: Maybe ByteString
+    , noticeHint             :: Maybe ByteString
     , noticePosition         :: Maybe Int
     , noticeInternalPosition :: Maybe Int
-    , noticeInternalQuery    :: Maybe B.ByteString
-    , noticeContext          :: Maybe B.ByteString
-    , noticeSchema           :: Maybe B.ByteString
-    , noticeTable            :: Maybe B.ByteString
-    , noticeColumn           :: Maybe B.ByteString
-    , noticeDataType         :: Maybe B.ByteString
-    , noticeConstraint       :: Maybe B.ByteString
-    , noticeSourceFilename   :: Maybe B.ByteString
+    , noticeInternalQuery    :: Maybe ByteString
+    , noticeContext          :: Maybe ByteString
+    , noticeSchema           :: Maybe ByteString
+    , noticeTable            :: Maybe ByteString
+    , noticeColumn           :: Maybe ByteString
+    , noticeDataType         :: Maybe ByteString
+    , noticeConstraint       :: Maybe ByteString
+    , noticeSourceFilename   :: Maybe ByteString
     , noticeSourceLine       :: Maybe Int
-    , noticeRoutine          :: Maybe B.ByteString
+    , noticeSourceRoutine    :: Maybe ByteString
     } deriving (Show)
 
 -- TODO
--- * CancelRequest
 -- * COPY subprotocol commands
 -- * function call, is deprecated by postgres
 -- * AuthenticationKerberosV5 IS deprecated by postgres
 -- * AuthenticationSCMCredential IS deprecated since postgres 9.1
--- * NOTICE execute command can have number of rows to receive, but we
---   dont support this feature
 -- * NOTICE bind command can have different formats for parameters and results
 --   but we assume that there will be one format for all.
 -- * We dont store parameters of connection that may change after startup
