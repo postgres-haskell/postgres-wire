@@ -32,6 +32,10 @@ newtype RowsCount = RowsCount Word deriving (Show)
 -- returns rows (ignored otherwise). Zero denotes "no limit".
 newtype RowsToReceive = RowsToReceive Int32 deriving (Show)
 
+-- | Query will returned unlimited rows.
+noLimitToReceive :: RowsToReceive
+noLimitToReceive = RowsToReceive 0
+
 -- | Information about completed command.
 data CommandResult
     --  oid is the object ID of the inserted row if rows is 1 and

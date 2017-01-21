@@ -16,7 +16,7 @@ import Data.Traversable
 import Data.Foldable
 import Control.Applicative
 import Data.Monoid
-import Control.Concurrent (forkIO, killThread, ThreadId)
+import Control.Concurrent (forkIO, killThread, ThreadId, threadDelay)
 import Data.Binary.Get ( runGetIncremental, pushChunk)
 import qualified Data.Binary.Get as BG (Decoder(..))
 import Data.Maybe (fromJust)
@@ -107,7 +107,6 @@ readAuthMessage s =
 receiverThread :: UnixSocket -> InChan ServerMessage -> IO ()
 receiverThread sock chan = forever $ do
     r <- receive sock 4096 mempty
-    print r
     go r
   where
     decoder = runGetIncremental decodeServerMessage
@@ -119,53 +118,43 @@ receiverThread sock chan = forever $ do
         BG.Partial _ -> error "Partial"
         BG.Fail _ _ e -> error e
 
--- data QQuery a = QQuery
---     { qName :: B.ByteString
---     , qStmt :: B.ByteString
---     , qOids :: V.Vector Oid
---     , qValues :: V.Vector B.ByteString
---     } deriving Show
+data Query = Query
+    { qStatement :: B.ByteString
+    , qOids :: V.Vector Oid
+    , qValues :: V.Vector B.ByteString
+    } deriving (Show)
 
--- query1 = QQuery "test1" "SELECT $1 + $2" [23, 23] ["1", "3"]
--- query2 = QQuery "test2" "SELECT $1 + $2" [23, 23] ["2", "3"]
--- query3 = QQuery "test3" "SELECT $1 + $2" [23, 23] ["3", "3"]
--- query4 = QQuery "test4" "SELECT $1 + $2" [23, 23] ["4", "3"]
--- query5 = QQuery "test5" "SELECT $1 + $2" [23, 23] ["5", "3"]
+query1 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["1", "3"]
+query2 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["2", "3"]
+query3 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["3", "3"]
+query4 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["4", "3"]
+query5 = Query "SELECT * FROM a where v > $1 + $2 LIMIT 100" [Oid 23, Oid 23] ["5", "3"]
 -- query1 = QQuery "test1" "select sum(v) from a" [] []
 -- query2 = QQuery "test2" "select sum(v) from a" [] []
 -- query3 = QQuery "test3" "select sum(v) from a" [] []
 -- query4 = QQuery "test4" "select sum(v) from a" [] []
 -- query5 = QQuery "test5" "select sum(v) from a" [] []
 
--- sendBatch :: Connection -> [QQuery] -> IO ()
--- sendBatch (Connection s _) qs = do
---     traverse sendSingle $ take 5 qs
---     sendMessage s $ encodeClientMessage Sync
---   where
---     sendSingle q = do
---         sendMessage s $ encodeClientMessage $
---             Parse (qName q) (qStmt q) (qOids q)
---         sendMessage s $ encodeClientMessage $
---             Bind (qName q) (qName q) Text (qValues q) Text
---         sendMessage s $ encodeClientMessage $ Execute (qName q)
+sendBatch :: Connection -> [Query] -> IO ()
+sendBatch conn qs = do
+    traverse sendSingle $ take 5 qs
+    sendMessage s Sync
+  where
+    s = connSocket conn
+    sendSingle q = do
+        let sname = StatementName ""
+            pname = PortalName ""
+        sendMessage s $ Parse sname (StatementSQL $ qStatement q) (qOids q)
+        sendMessage s $ Bind pname sname Text (qValues q) Text
+        sendMessage s $ Execute pname noLimitToReceive
 
 
--- sendQuery :: Connection -> IO ()
--- sendQuery (Connection s _) = do
---     sendMessage s $ encodeClientMessage $ Parse "test" "SELECT $1 + $2" [23, 23]
---     sendMessage s $ encodeClientMessage $
---         Bind "test" "test" Text ["2", "3"] Text
---     sendMessage s $ encodeClientMessage $ Execute "test"
---     sendMessage s $ encodeClientMessage Sync
-
--- test :: IO ()
--- test = do
---     c <- connect defaultConnectionSettings
---     -- sendQuery c
---     getPOSIXTime >>= \t -> print "Start " >> print t
---     sendBatch c [query1, query2, query3, query4, query5]
---     threadDelay $ 5 * 1000 * 1000
---     close c
+test :: IO ()
+test = do
+    c <- connect defaultConnectionSettings
+    sendBatch c [query1, query2, query3, query4, query5]
+    threadDelay $ 1 * 1000 * 1000
+    close c
 
 
 -- sendBatchAndSync :: IsQuery a => [a] -> Connection -> IO ()
@@ -186,21 +175,4 @@ receiverThread sock chan = forever $ do
 -- may be support for all standalone queries
 
 -- data Request = forall a . Request (QQuery a)
-
--- query :: Decode a => QQuery a -> Session a
--- query q = Send One [Request q] $ Receive Done
-
-
-
--- sendBatch :: Connection -> [Request] -> IO ()
--- sendBatch (Connection s _ _) rs = do
---     traverse sendSingle rs
---     sendMessage s $ encodeClientMessage Sync
---   where
---     sendSingle (Request q) = do
---         sendMessage s $ encodeClientMessage $
---             Parse (qName q) (qStmt q) (qOids q)
---         sendMessage s $ encodeClientMessage $
---             Bind (qName q) (qName q) Text (qValues q) Text
---         sendMessage s $ encodeClientMessage $ Execute (qName q)
 
