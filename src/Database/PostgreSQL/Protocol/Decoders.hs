@@ -85,7 +85,6 @@ decodeFieldDescription = FieldDescription
     <*> getInt32be
     <*> decodeFormat
 
-
 decodeNotification :: Get Notification
 decodeNotification = Notification
     <$> (ServerProcessId <$> getInt32be)

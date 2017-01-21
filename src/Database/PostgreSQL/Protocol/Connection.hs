@@ -1,6 +1,5 @@
 {-# language OverloadedLists #-}
 {-# language OverloadedStrings #-}
-{-# language DeriveFunctor #-}
 {-# language GADTs #-}
 {-# language ApplicativeDo #-}
 {-# language ExistentialQuantification #-}
@@ -33,7 +32,7 @@ import Control.Concurrent.Chan.Unagi
 
 import Database.PostgreSQL.Protocol.Settings
 import Database.PostgreSQL.Protocol.Encoders
--- import Database.PostgreSQL.Protocol.Decoders
+import Database.PostgreSQL.Protocol.Decoders
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.StatementStorage
 
@@ -51,57 +50,74 @@ data Connection = Connection
 address :: SocketAddress Unix
 address = fromJust $ socketAddressUnixPath "/var/run/postgresql/.s.PGSQL.5432"
 
--- connect :: ConnectionSettings -> IO Connection
--- connect settings = do
---     s <- socket
---     Socket.connect s address
---     sendMessage s $ encodeStartMessage $ consStartupMessage settings
---     r <- receive s 4096 mempty
---     readAuthMessage r
+connect :: ConnectionSettings -> IO Connection
+connect settings = do
+    s <- socket
+    Socket.connect s address
+    sendStartMessage s $ consStartupMessage settings
+    r <- receive s 4096 mempty
+    readAuthMessage r
 
---     (inChan, outChan) <- newChan
---     tid <- forkIO $ receiverThread s inChan
---     pure $ Connection s tid outChan
+    (inChan, outChan) <- newChan
+    tid <- forkIO $ receiverThread s inChan
+    storage <- newStatementStorage
+    pure Connection
+        { connSocket = s
+        , connReceiverThread = tid
+        , connOutChan = outChan
+        , connStatementStorage = storage
+        , connParameters = ConnectionParameters
+            { paramServerVersion = ServerVersion 1 1 1
+            , paramServerEncoding = ""
+            , paramIntegerDatetimes = True
+            }
+        }
 
--- close :: Connection -> IO ()
--- close (Connection s tid chan) = do
---     killThread tid
---     Socket.close s
+close :: Connection -> IO ()
+close conn = do
+    killThread $ connReceiverThread conn
+    Socket.close $ connSocket conn
 
--- consStartupMessage :: ConnectionSettings -> StartMessage
--- consStartupMessage stg = StartupMessage (connUser stg) (connDatabase stg)
+consStartupMessage :: ConnectionSettings -> StartMessage
+consStartupMessage stg = StartupMessage
+    (Username $ settingsUser stg) (DatabaseName $ settingsDatabase stg)
 
--- sendMessage :: UnixSocket -> Builder -> IO ()
--- sendMessage sock msg = void $ do
---     let smsg = toStrict $ toLazyByteString msg
---     -- putStrLn "sending message:"
---     -- print smsg
---     send sock smsg mempty
+sendStartMessage :: UnixSocket -> StartMessage -> IO ()
+sendStartMessage sock msg = void $ do
+    let smsg = toStrict . toLazyByteString $ encodeStartMessage msg
+    -- putStrLn "sending message:"
+    -- print smsg
+    send sock smsg mempty
 
--- readAuthMessage :: B.ByteString -> IO ()
--- readAuthMessage s =
---     case pushChunk (runGetIncremental decodeAuthResponse) s of
---         BG.Done _ _ r -> case r of
---             AuthenticationOk -> putStrLn "Auth ok"
---             _                -> error "Invalid auth"
---         f -> error $ show s
+sendMessage :: UnixSocket -> ClientMessage -> IO ()
+sendMessage sock msg = void $ do
+    let smsg = toStrict . toLazyByteString $ encodeClientMessage msg
+    -- putStrLn "sending message:"
+    -- print smsg
+    send sock smsg mempty
 
--- receiverThread :: UnixSocket -> InChan ServerMessage -> IO ()
--- receiverThread sock chan = forever $ do
---     r <- receive sock 4096 mempty
---     print "Receive time"
---     getPOSIXTime >>= print
---     print r
---     go r
---   where
---     decoder = runGetIncremental decodeServerMessage
---     go str = case pushChunk decoder str of
---         BG.Done rest _ v -> do
---             print v
---             writeChan chan v
---             unless (B.null rest) $ go rest
---         BG.Partial _ -> error "Partial"
---         BG.Fail _ _ e -> error e
+readAuthMessage :: B.ByteString -> IO ()
+readAuthMessage s =
+    case pushChunk (runGetIncremental decodeAuthResponse) s of
+        BG.Done _ _ r -> case r of
+            AuthenticationOk -> putStrLn "Auth ok"
+            _                -> error "Invalid auth"
+        f -> error $ show s
+
+receiverThread :: UnixSocket -> InChan ServerMessage -> IO ()
+receiverThread sock chan = forever $ do
+    r <- receive sock 4096 mempty
+    print r
+    go r
+  where
+    decoder = runGetIncremental decodeServerMessage
+    go str = case pushChunk decoder str of
+        BG.Done rest _ v -> do
+            print v
+            writeChan chan v
+            unless (B.null rest) $ go rest
+        BG.Partial _ -> error "Partial"
+        BG.Fail _ _ e -> error e
 
 -- data QQuery a = QQuery
 --     { qName :: B.ByteString
