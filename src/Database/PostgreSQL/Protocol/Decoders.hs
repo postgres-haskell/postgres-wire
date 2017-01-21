@@ -115,7 +115,7 @@ decodeCommandResult s =
         "MOVE"   -> MoveCompleted <$> readRows rest
         "FETCH"  -> FetchCompleted <$> readRows rest
         "COPY"   -> CopyCompleted <$> readRows rest
-        _        -> fail "Unknown command in command result"
+        _        -> pure CommandOk
   where
     space = 32
     readRows = maybe (fail "Invalid rows format in command result")

@@ -47,6 +47,8 @@ data CommandResult
     | MoveCompleted   RowsCount
     | FetchCompleted  RowsCount
     | CopyCompleted   RowsCount
+    -- all other commands
+    | CommandOk
     deriving (Show)
 
 -- | Parameters of the current connection.
