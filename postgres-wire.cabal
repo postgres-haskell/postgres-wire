@@ -32,8 +32,11 @@ library
                      , hashable
                      , hashtables
                      , unagi-chan
+                     , unordered-containers
   default-language:    Haskell2010
-  default-extensions:  OverloadedStrings
+  default-extensions:  
+    OverloadedStrings
+    GeneralizedNewtypeDeriving
 
 test-suite postgres-wire-test
   type:                exitcode-stdio-1.0

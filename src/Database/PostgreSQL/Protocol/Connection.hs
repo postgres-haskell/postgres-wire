@@ -33,7 +33,7 @@ import Control.Concurrent.Chan.Unagi
 
 import Database.PostgreSQL.Protocol.Settings
 import Database.PostgreSQL.Protocol.Encoders
-import Database.PostgreSQL.Protocol.Decoders
+-- import Database.PostgreSQL.Protocol.Decoders
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.StatementStorage
 
@@ -51,70 +51,70 @@ data Connection = Connection
 address :: SocketAddress Unix
 address = fromJust $ socketAddressUnixPath "/var/run/postgresql/.s.PGSQL.5432"
 
-connect :: ConnectionSettings -> IO Connection
-connect settings = do
-    s <- socket
-    Socket.connect s address
-    sendMessage s $ encodeStartMessage $ consStartupMessage settings
-    r <- receive s 4096 mempty
-    readAuthMessage r
+-- connect :: ConnectionSettings -> IO Connection
+-- connect settings = do
+--     s <- socket
+--     Socket.connect s address
+--     sendMessage s $ encodeStartMessage $ consStartupMessage settings
+--     r <- receive s 4096 mempty
+--     readAuthMessage r
 
-    (inChan, outChan) <- newChan
-    tid <- forkIO $ receiverThread s inChan
-    pure $ Connection s tid outChan
+--     (inChan, outChan) <- newChan
+--     tid <- forkIO $ receiverThread s inChan
+--     pure $ Connection s tid outChan
 
-close :: Connection -> IO ()
-close (Connection s tid chan) = do
-    killThread tid
-    Socket.close s
+-- close :: Connection -> IO ()
+-- close (Connection s tid chan) = do
+--     killThread tid
+--     Socket.close s
 
-consStartupMessage :: ConnectionSettings -> StartMessage
-consStartupMessage stg = StartupMessage (connUser stg) (connDatabase stg)
+-- consStartupMessage :: ConnectionSettings -> StartMessage
+-- consStartupMessage stg = StartupMessage (connUser stg) (connDatabase stg)
 
-sendMessage :: UnixSocket -> Builder -> IO ()
-sendMessage sock msg = void $ do
-    let smsg = toStrict $ toLazyByteString msg
-    -- putStrLn "sending message:"
-    -- print smsg
-    send sock smsg mempty
+-- sendMessage :: UnixSocket -> Builder -> IO ()
+-- sendMessage sock msg = void $ do
+--     let smsg = toStrict $ toLazyByteString msg
+--     -- putStrLn "sending message:"
+--     -- print smsg
+--     send sock smsg mempty
 
-readAuthMessage :: B.ByteString -> IO ()
-readAuthMessage s =
-    case pushChunk (runGetIncremental decodeAuthResponse) s of
-        BG.Done _ _ r -> case r of
-            AuthenticationOk -> putStrLn "Auth ok"
-            _                -> error "Invalid auth"
-        f -> error $ show s
+-- readAuthMessage :: B.ByteString -> IO ()
+-- readAuthMessage s =
+--     case pushChunk (runGetIncremental decodeAuthResponse) s of
+--         BG.Done _ _ r -> case r of
+--             AuthenticationOk -> putStrLn "Auth ok"
+--             _                -> error "Invalid auth"
+--         f -> error $ show s
 
-receiverThread :: UnixSocket -> InChan ServerMessage -> IO ()
-receiverThread sock chan = forever $ do
-    r <- receive sock 4096 mempty
-    print "Receive time"
-    getPOSIXTime >>= print
-    print r
-    go r
-  where
-    decoder = runGetIncremental decodeServerMessage
-    go str = case pushChunk decoder str of
-        BG.Done rest _ v -> do
-            print v
-            writeChan chan v
-            unless (B.null rest) $ go rest
-        BG.Partial _ -> error "Partial"
-        BG.Fail _ _ e -> error e
+-- receiverThread :: UnixSocket -> InChan ServerMessage -> IO ()
+-- receiverThread sock chan = forever $ do
+--     r <- receive sock 4096 mempty
+--     print "Receive time"
+--     getPOSIXTime >>= print
+--     print r
+--     go r
+--   where
+--     decoder = runGetIncremental decodeServerMessage
+--     go str = case pushChunk decoder str of
+--         BG.Done rest _ v -> do
+--             print v
+--             writeChan chan v
+--             unless (B.null rest) $ go rest
+--         BG.Partial _ -> error "Partial"
+--         BG.Fail _ _ e -> error e
 
-data QQuery a = QQuery
-    { qName :: B.ByteString
-    , qStmt :: B.ByteString
-    , qOids :: V.Vector Oid
-    , qValues :: V.Vector B.ByteString
-    } deriving Show
+-- data QQuery a = QQuery
+--     { qName :: B.ByteString
+--     , qStmt :: B.ByteString
+--     , qOids :: V.Vector Oid
+--     , qValues :: V.Vector B.ByteString
+--     } deriving Show
 
-query1 = QQuery "test1" "SELECT $1 + $2" [23, 23] ["1", "3"]
-query2 = QQuery "test2" "SELECT $1 + $2" [23, 23] ["2", "3"]
-query3 = QQuery "test3" "SELECT $1 + $2" [23, 23] ["3", "3"]
-query4 = QQuery "test4" "SELECT $1 + $2" [23, 23] ["4", "3"]
-query5 = QQuery "test5" "SELECT $1 + $2" [23, 23] ["5", "3"]
+-- query1 = QQuery "test1" "SELECT $1 + $2" [23, 23] ["1", "3"]
+-- query2 = QQuery "test2" "SELECT $1 + $2" [23, 23] ["2", "3"]
+-- query3 = QQuery "test3" "SELECT $1 + $2" [23, 23] ["3", "3"]
+-- query4 = QQuery "test4" "SELECT $1 + $2" [23, 23] ["4", "3"]
+-- query5 = QQuery "test5" "SELECT $1 + $2" [23, 23] ["5", "3"]
 -- query1 = QQuery "test1" "select sum(v) from a" [] []
 -- query2 = QQuery "test2" "select sum(v) from a" [] []
 -- query3 = QQuery "test3" "select sum(v) from a" [] []
@@ -169,22 +169,22 @@ query5 = QQuery "test5" "SELECT $1 + $2" [23, 23] ["5", "3"]
 -- because single text query may be send through extended protocol
 -- may be support for all standalone queries
 
-data Request = forall a . Request (QQuery a)
+-- data Request = forall a . Request (QQuery a)
 
-query :: Decode a => QQuery a -> Session a
-query q = Send One [Request q] $ Receive Done
+-- query :: Decode a => QQuery a -> Session a
+-- query q = Send One [Request q] $ Receive Done
 
 
 
-sendBatch :: Connection -> [Request] -> IO ()
-sendBatch (Connection s _ _) rs = do
-    traverse sendSingle rs
-    sendMessage s $ encodeClientMessage Sync
-  where
-    sendSingle (Request q) = do
-        sendMessage s $ encodeClientMessage $
-            Parse (qName q) (qStmt q) (qOids q)
-        sendMessage s $ encodeClientMessage $
-            Bind (qName q) (qName q) Text (qValues q) Text
-        sendMessage s $ encodeClientMessage $ Execute (qName q)
+-- sendBatch :: Connection -> [Request] -> IO ()
+-- sendBatch (Connection s _ _) rs = do
+--     traverse sendSingle rs
+--     sendMessage s $ encodeClientMessage Sync
+--   where
+--     sendSingle (Request q) = do
+--         sendMessage s $ encodeClientMessage $
+--             Parse (qName q) (qStmt q) (qOids q)
+--         sendMessage s $ encodeClientMessage $
+--             Bind (qName q) (qName q) Text (qValues q) Text
+--         sendMessage s $ encodeClientMessage $ Execute (qName q)
 
