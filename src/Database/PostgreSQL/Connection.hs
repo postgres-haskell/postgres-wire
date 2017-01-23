@@ -21,7 +21,7 @@ import Data.Binary.Get ( runGetIncremental, pushChunk)
 import qualified Data.Binary.Get as BG (Decoder(..))
 import Data.Maybe (fromJust)
 import qualified Data.Vector as V
-import System.Socket hiding (connect, close)
+import System.Socket hiding (connect, close, Error(..))
 import qualified System.Socket as Socket (connect, close)
 import System.Socket.Family.Inet6
 import System.Socket.Type.Stream
@@ -43,15 +43,15 @@ type UnixSocket = Socket Unix Stream Unix
 data Connection = Connection
     { connSocket             :: UnixSocket
     , connReceiverThread     :: ThreadId
-    -- Chan for only data messages
-    , connDataOutChan        :: OutChan (Either Error DataMessage)
-    -- Chan for all messages that filter
-    , connAllOutChan         :: OutChan ServerMessage
+    -- channel only for Data messages
+    , connOutDataChan        :: OutChan (Either Error DataMessage)
+    -- channel for all the others messages
+    , connOutAllChan         :: OutChan ServerMessage
     , connStatementStorage   :: StatementStorage
     , connParameters         :: ConnectionParameters
     }
 
-newtype ServerMessageFilter = ServerMessageFilter (ServerMessage -> Bool)
+type ServerMessageFilter = ServerMessage -> Bool
 
 type NotificationHandler = Notification -> IO ()
 
@@ -59,8 +59,11 @@ type NotificationHandler = Notification -> IO ()
 data Error
     = PostgresError ErrorDesc
     | ImpossibleError
+    deriving (Show)
 
-data DataMessage = DataMessage B.ByteString
+data DataMessage = DataMessage [V.Vector B.ByteString]
+    deriving (Show)
+
 
 address :: SocketAddress Unix
 address = fromJust $ socketAddressUnixPath "/var/run/postgresql/.s.PGSQL.5432"
@@ -73,13 +76,15 @@ connect settings = do
     r <- receive s 4096 mempty
     readAuthMessage r
 
-    (inChan, outChan) <- newChan
-    tid <- forkIO $ receiverThread s inChan
+    (inDataChan, outDataChan) <- newChan
+    (inAllChan, outAllChan) <- newChan
+    tid <- forkIO $ receiverThread s inDataChan inAllChan
     storage <- newStatementStorage
     pure Connection
         { connSocket = s
         , connReceiverThread = tid
-        , connOutChan = outChan
+        , connOutDataChan = outDataChan
+        , connOutAllChan = outAllChan
         , connStatementStorage = storage
         , connParameters = ConnectionParameters
             { paramServerVersion = ServerVersion 1 1 1
@@ -115,48 +120,99 @@ readAuthMessage s =
             _                -> error "Invalid auth"
         f -> error $ show s
 
-receiverThread :: UnixSocket -> InChan ServerMessage -> IO ()
-receiverThread sock chan = forever $ do
-    r <- receive sock 4096 mempty
-    print r
-    go r
+receiverThread
+    :: UnixSocket
+    -> InChan (Either Error DataMessage)
+    -> InChan ServerMessage
+    -> IO ()
+receiverThread sock dataChan allChan = receiveLoop []
   where
+    receiveLoop :: [V.Vector B.ByteString] -> IO()
+    receiveLoop acc = do
+        r <- receive sock 4096 mempty
+        -- print r
+        go r acc >>= receiveLoop
+
     decoder = runGetIncremental decodeServerMessage
-    go str = case pushChunk decoder str of
+    go :: B.ByteString -> [V.Vector B.ByteString] -> IO [V.Vector B.ByteString]
+    go str acc = case pushChunk decoder str of
         BG.Done rest _ v -> do
             putStrLn $ "Received: " ++ show v
-            unless (B.null rest) $ go rest
+            -- TODO select filter
+            when (defaultFilter v) $ writeChan allChan v
+            newAcc <- dispatch v acc
+            if B.null rest
+                then pure newAcc
+                else go rest newAcc
         BG.Partial _ -> error "Partial"
         BG.Fail _ _ e -> error e
-    dispatch :: ServerMessage -> IO ()
-    -- dont receiving at this phase
-    dispatch (BackendKeyData _ _) = pure ()
-    dispatch (BindComplete) = pure ()
-    dispatch CloseComplete = pure ()
-    -- maybe return command result too
-    dispatch (CommandComplete _) = pure ()
-    dispatch r@(DataRow _) = writeChan chan r
-    -- TODO throw error here
-    dispatch EmptyQueryResponse = pure ()
-    -- TODO throw error here
-    dispatch (ErrorResponse desc) = pure ()
-    -- TODO
-    dispatch NoData = pure ()
-    dispatch (NoticeResponse _) = pure ()
+
+    dispatch
+        :: ServerMessage
+        -> [V.Vector B.ByteString]
+        -> IO [V.Vector B.ByteString]
+    -- Command is completed, return the result
+    dispatch (CommandComplete _) acc = do
+        writeChan dataChan . Right . DataMessage $ reverse acc
+        pure []
+    -- note that data rows go in reversed order
+    dispatch (DataRow row) acc = pure (row:acc)
+    -- PostgreSQL sends this if query string was empty and datarows should be
+    -- empty, but anyway we return data collected in `acc`.
+    dispatch EmptyQueryResponse acc = do
+        writeChan dataChan . Right . DataMessage $ reverse acc
+        pure []
+    -- On ErrorResponse we should discard all the collected datarows
+    dispatch (ErrorResponse desc) acc = do
+        writeChan dataChan $ Left $ PostgresError desc
+        pure []
     -- TODO handle notifications
-    dispatch (NotificationResponse n) = pure ()
-    -- Ignore here ?
-    dispatch (ParameterDescription _) = pure ()
-    dispatch (ParameterStatus _ _) = pure ()
-    dispatch (ParseComplete) = pure ()
-    dispatch (PortalSuspended) = pure ()
-    dispatch (ReadForQuery _) = pure ()
-    dispatch (RowDescription _) = pure ()
+    dispatch (NotificationResponse n) acc = pure acc
+    -- We does not handled this case because we always send `execute`
+    -- with no limit.
+    dispatch PortalSuspended acc = pure acc
+    -- do nothing on other messages
+    dispatch _ acc = pure acc
+
+defaultFilter :: ServerMessageFilter
+defaultFilter msg = case msg of
+    -- PostgreSQL sends it only in startup phase
+    BackendKeyData{}       -> False
+    -- just ignore
+    BindComplete           -> False
+    -- just ignore
+    CloseComplete          -> False
+    -- messages affecting data handled in dispatcher
+    CommandComplete{}      -> False
+    -- messages affecting data handled in dispatcher
+    DataRow{}              -> False
+    -- messages affecting data handled in dispatcher
+    EmptyQueryResponse     -> False
+    -- We need collect all errors to know whether the whole command is successful
+    ErrorResponse{}        -> True
+    -- We need to know if the server send NoData on `describe` message
+    NoData                 -> True
+    -- All notices are not showing
+    NoticeResponse{}       -> False
+    -- notifications will be handled by callbacks or in a separate channel
+    NotificationResponse{} -> False
+    -- As result for `describe` message
+    ParameterDescription{} -> True
+    -- we dont store any run-time parameter that is not a constant
+    ParameterStatus{}      -> False
+    -- just ignore
+    ParseComplete          -> False
+    -- messages affecting data handled in dispatcher
+    PortalSuspended        -> False
+    -- to know when command processing is finished
+    ReadForQuery{}         -> True
+    -- as result for `describe` message
+    RowDescription{}       -> True
 
 data Query = Query
-    { qStatement :: B.ByteString
-    , qOids :: V.Vector Oid
-    , qValues :: V.Vector B.ByteString
+    { qStatement    :: B.ByteString
+    , qOids         :: V.Vector Oid
+    , qValues       :: V.Vector B.ByteString
     , qParamsFormat :: Format
     , qResultFormat :: Format
     } deriving (Show)
@@ -165,7 +221,6 @@ query1 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["1", "3"] Text Text
 query2 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["2", "3"] Text Text
 query3 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["3", "3"] Text Text
 query4 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["4", "3"] Text Text
--- query5 = Query "SELECT * FROM a whereee v > $1 + $2 LIMIT 100" [Oid 23, Oid 23] ["5", "3"]
 
 sendBatch :: Connection -> [Query] -> IO ()
 sendBatch conn qs = do
@@ -185,8 +240,11 @@ sendBatch conn qs = do
 test :: IO ()
 test = do
     c <- connect defaultConnectionSettings
-    sendBatch c [query1, query2, query3, query4, query5]
-    threadDelay $ 1 * 1000 * 1000
+    sendBatch c [query1, query2, query3, query4 ]
+    readNextData c >>= print
+    readNextData c >>= print
+    readNextData c >>= print
+    readNextData c >>= print
     close c
 
 
@@ -200,15 +258,10 @@ test = do
 -- sendBatch :: IsQuery a => [a] -> Connection -> IO ()
 -- sendBatch = undefined
 
--- readNextData :: Connection -> IO Data?
--- readNextData = undefined
+readNextData :: Connection -> IO (Either Error DataMessage)
+readNextData conn = readChan $ connOutDataChan conn
 --
 -- readNextServerMessage ?
 --
 --
--- Simple Queries support or maybe dont support it
--- because single text query may be send through extended protocol
--- may be support for all standalone queries
-
--- data Request = forall a . Request (QQuery a)
 
