@@ -137,7 +137,7 @@ receiverThread sock dataChan allChan = receiveLoop []
     go :: B.ByteString -> [V.Vector B.ByteString] -> IO [V.Vector B.ByteString]
     go str acc = case pushChunk decoder str of
         BG.Done rest _ v -> do
-            putStrLn $ "Received: " ++ show v
+            -- putStrLn $ "Received: " ++ show v
             -- TODO select filter
             when (defaultFilter v) $ writeChan allChan v
             newAcc <- dispatch v acc
@@ -218,7 +218,7 @@ data Query = Query
     } deriving (Show)
 
 query1 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["1", "3"] Text Text
-query2 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["2", "3"] Text Text
+query2 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["a", "3"] Text Text
 query3 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["3", "3"] Text Text
 query4 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["4", "3"] Text Text
 
@@ -240,13 +240,19 @@ sendBatch conn qs = do
 test :: IO ()
 test = do
     c <- connect defaultConnectionSettings
-    sendBatch c [query1, query2, query3, query4 ]
-    readNextData c >>= print
-    readNextData c >>= print
-    readNextData c >>= print
-    readNextData c >>= print
+    sendBatch c queries
+    readResults c $ length queries
+    readReadyForQuery c >>= print
     close c
-
+  where
+    queries = [query1, query2, query3, query4 ]
+    readResults c 0 = pure ()
+    readResults c n = do
+        r <- readNextData c
+        print r
+        case r of
+            Left  _ -> pure ()
+            Right _ -> readResults c $ n - 1
 
 -- sendBatchAndSync :: IsQuery a => [a] -> Connection -> IO ()
 -- sendBatchAndSync = undefined
@@ -260,6 +266,17 @@ test = do
 
 readNextData :: Connection -> IO (Either Error DataMessage)
 readNextData conn = readChan $ connOutDataChan conn
+
+-- SHOULD BE called after every sended `Sync` message
+readReadyForQuery :: Connection -> IO (Either Error ())
+readReadyForQuery conn = do
+    msg <- readChan $ connOutAllChan conn
+    case msg of
+        ErrorResponse desc -> do
+            readReadyForQuery conn
+            pure $ Left $ PostgresError desc
+        ReadForQuery{} -> pure $ Right ()
+        _ -> readReadyForQuery conn
 --
 -- readNextServerMessage ?
 --
