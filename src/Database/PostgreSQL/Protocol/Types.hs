@@ -1,5 +1,14 @@
 module Database.PostgreSQL.Protocol.Types where
 
+-- TODO
+-- * COPY subprotocol commands
+--
+-- * function call, is deprecated by postgres
+-- * AuthenticationKerberosV5 IS deprecated by postgres
+-- * AuthenticationSCMCredential IS deprecated since postgres 9.1
+-- * bind command can have different formats for parameters and results
+--   but we assume that there will be one format for all.
+
 import Data.Word (Word32, Word8)
 import Data.Int (Int32, Int16)
 import Data.Hashable (Hashable)
@@ -50,15 +59,6 @@ data CommandResult
     -- all other commands
     | CommandOk
     deriving (Show)
-
--- | Parameters of the current connection.
--- We store only the parameters that cannot change after startup.
--- For more information about additional parameters see documentation.
-data ConnectionParameters = ConnectionParameters
-    { paramServerVersion    :: ServerVersion
-    , paramServerEncoding   :: ByteString   -- ^ character set name
-    , paramIntegerDatetimes :: Bool         -- ^ True if integer datetimes used
-    } deriving (Show)
 
 -- | Server version contains major, minor, revision numbers.
 data ServerVersion = ServerVersion Word8 Word8 Word8
@@ -225,13 +225,4 @@ data NoticeDesc = NoticeDesc
     , noticeSourceLine       :: Maybe Int
     , noticeSourceRoutine    :: Maybe ByteString
     } deriving (Show)
-
--- TODO
--- * COPY subprotocol commands
--- * function call, is deprecated by postgres
--- * AuthenticationKerberosV5 IS deprecated by postgres
--- * AuthenticationSCMCredential IS deprecated since postgres 9.1
--- * NOTICE bind command can have different formats for parameters and results
---   but we assume that there will be one format for all.
--- * We dont store parameters of connection that may change after startup
 

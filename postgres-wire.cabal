@@ -16,12 +16,14 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     Database.PostgreSQL.Protocol
+                     , Database.PostgreSQL.Connection
+                     , Database.PostgreSQL.Settings
+                     , Database.PostgreSQL.StatementStorage
+                     , Database.PostgreSQL.Types
+
                      , Database.PostgreSQL.Protocol.Types
-                     , Database.PostgreSQL.Protocol.Settings
-                     , Database.PostgreSQL.Protocol.Connection
                      , Database.PostgreSQL.Protocol.Encoders
                      , Database.PostgreSQL.Protocol.Decoders
-                     , Database.PostgreSQL.Protocol.StatementStorage
   build-depends:       base >= 4.7 && < 5
                      , bytestring
                      , socket

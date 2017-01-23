@@ -5,7 +5,7 @@
 {-# language ExistentialQuantification #-}
 {-# language TypeSynonymInstances #-}
 {-# language FlexibleInstances #-}
-module Database.PostgreSQL.Protocol.Connection where
+module Database.PostgreSQL.Connection where
 
 
 import qualified Data.ByteString as B
@@ -30,11 +30,12 @@ import System.Socket.Family.Unix
 import Data.Time.Clock.POSIX
 import Control.Concurrent.Chan.Unagi
 
-import Database.PostgreSQL.Protocol.Settings
 import Database.PostgreSQL.Protocol.Encoders
 import Database.PostgreSQL.Protocol.Decoders
 import Database.PostgreSQL.Protocol.Types
-import Database.PostgreSQL.Protocol.StatementStorage
+import Database.PostgreSQL.Settings
+import Database.PostgreSQL.StatementStorage
+import Database.PostgreSQL.Types
 
 
 type UnixSocket = Socket Unix Stream Unix
@@ -42,10 +43,24 @@ type UnixSocket = Socket Unix Stream Unix
 data Connection = Connection
     { connSocket             :: UnixSocket
     , connReceiverThread     :: ThreadId
-    , connOutChan            :: OutChan ServerMessage
+    -- Chan for only data messages
+    , connDataOutChan        :: OutChan (Either Error DataMessage)
+    -- Chan for all messages that filter
+    , connAllOutChan         :: OutChan ServerMessage
     , connStatementStorage   :: StatementStorage
     , connParameters         :: ConnectionParameters
     }
+
+newtype ServerMessageFilter = ServerMessageFilter (ServerMessage -> Bool)
+
+type NotificationHandler = Notification -> IO ()
+
+-- All possible errors
+data Error
+    = PostgresError ErrorDesc
+    | ImpossibleError
+
+data DataMessage = DataMessage B.ByteString
 
 address :: SocketAddress Unix
 address = fromJust $ socketAddressUnixPath "/var/run/postgresql/.s.PGSQL.5432"
@@ -85,15 +100,11 @@ consStartupMessage stg = StartupMessage
 sendStartMessage :: UnixSocket -> StartMessage -> IO ()
 sendStartMessage sock msg = void $ do
     let smsg = toStrict . toLazyByteString $ encodeStartMessage msg
-    -- putStrLn "sending message:"
-    -- print smsg
     send sock smsg mempty
 
 sendMessage :: UnixSocket -> ClientMessage -> IO ()
 sendMessage sock msg = void $ do
     let smsg = toStrict . toLazyByteString $ encodeClientMessage msg
-    -- putStrLn "sending message:"
-    -- print smsg
     send sock smsg mempty
 
 readAuthMessage :: B.ByteString -> IO ()
@@ -107,33 +118,54 @@ readAuthMessage s =
 receiverThread :: UnixSocket -> InChan ServerMessage -> IO ()
 receiverThread sock chan = forever $ do
     r <- receive sock 4096 mempty
+    print r
     go r
   where
     decoder = runGetIncremental decodeServerMessage
     go str = case pushChunk decoder str of
         BG.Done rest _ v -> do
-            print v
-            writeChan chan v
+            putStrLn $ "Received: " ++ show v
             unless (B.null rest) $ go rest
         BG.Partial _ -> error "Partial"
         BG.Fail _ _ e -> error e
+    dispatch :: ServerMessage -> IO ()
+    -- dont receiving at this phase
+    dispatch (BackendKeyData _ _) = pure ()
+    dispatch (BindComplete) = pure ()
+    dispatch CloseComplete = pure ()
+    -- maybe return command result too
+    dispatch (CommandComplete _) = pure ()
+    dispatch r@(DataRow _) = writeChan chan r
+    -- TODO throw error here
+    dispatch EmptyQueryResponse = pure ()
+    -- TODO throw error here
+    dispatch (ErrorResponse desc) = pure ()
+    -- TODO
+    dispatch NoData = pure ()
+    dispatch (NoticeResponse _) = pure ()
+    -- TODO handle notifications
+    dispatch (NotificationResponse n) = pure ()
+    -- Ignore here ?
+    dispatch (ParameterDescription _) = pure ()
+    dispatch (ParameterStatus _ _) = pure ()
+    dispatch (ParseComplete) = pure ()
+    dispatch (PortalSuspended) = pure ()
+    dispatch (ReadForQuery _) = pure ()
+    dispatch (RowDescription _) = pure ()
 
 data Query = Query
     { qStatement :: B.ByteString
     , qOids :: V.Vector Oid
     , qValues :: V.Vector B.ByteString
+    , qParamsFormat :: Format
+    , qResultFormat :: Format
     } deriving (Show)
 
-query1 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["1", "3"]
-query2 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["2", "3"]
-query3 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["3", "3"]
-query4 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["4", "3"]
-query5 = Query "SELECT * FROM a where v > $1 + $2 LIMIT 100" [Oid 23, Oid 23] ["5", "3"]
--- query1 = QQuery "test1" "select sum(v) from a" [] []
--- query2 = QQuery "test2" "select sum(v) from a" [] []
--- query3 = QQuery "test3" "select sum(v) from a" [] []
--- query4 = QQuery "test4" "select sum(v) from a" [] []
--- query5 = QQuery "test5" "select sum(v) from a" [] []
+query1 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["1", "3"] Text Text
+query2 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["2", "3"] Text Text
+query3 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["3", "3"] Text Text
+query4 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["4", "3"] Text Text
+-- query5 = Query "SELECT * FROM a whereee v > $1 + $2 LIMIT 100" [Oid 23, Oid 23] ["5", "3"]
 
 sendBatch :: Connection -> [Query] -> IO ()
 sendBatch conn qs = do
@@ -145,7 +177,8 @@ sendBatch conn qs = do
         let sname = StatementName ""
             pname = PortalName ""
         sendMessage s $ Parse sname (StatementSQL $ qStatement q) (qOids q)
-        sendMessage s $ Bind pname sname Text (qValues q) Text
+        sendMessage s $
+            Bind pname sname (qParamsFormat q) (qValues q) (qResultFormat q)
         sendMessage s $ Execute pname noLimitToReceive
 
 
@@ -169,6 +202,9 @@ test = do
 
 -- readNextData :: Connection -> IO Data?
 -- readNextData = undefined
+--
+-- readNextServerMessage ?
+--
 --
 -- Simple Queries support or maybe dont support it
 -- because single text query may be send through extended protocol
