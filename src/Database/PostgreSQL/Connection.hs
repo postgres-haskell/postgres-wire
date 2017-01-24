@@ -268,17 +268,57 @@ readNextData :: Connection -> IO (Either Error DataMessage)
 readNextData conn = readChan $ connOutDataChan conn
 
 -- SHOULD BE called after every sended `Sync` message
+-- skips all messages except `ReadyForQuery`
 readReadyForQuery :: Connection -> IO (Either Error ())
-readReadyForQuery conn = do
+readReadyForQuery = fmap (liftError . findFirstError)
+                    . waitReadyForQueryCollect
+  where
+    liftError = maybe (Right ()) (Left . PostgresError)
+
+findFirstError :: [ServerMessage] -> Maybe ErrorDesc
+findFirstError []                       = Nothing
+findFirstError (ErrorResponse desc : _) = Just desc
+findFirstError (_ : xs)                 = findFirstError xs
+
+-- Collects all messages received before ReadyForQuery
+waitReadyForQueryCollect :: Connection -> IO [ServerMessage]
+waitReadyForQueryCollect conn = do
     msg <- readChan $ connOutAllChan conn
     case msg of
-        ErrorResponse desc -> do
-            readReadyForQuery conn
-            pure $ Left $ PostgresError desc
-        ReadForQuery{} -> pure $ Right ()
-        _ -> readReadyForQuery conn
---
--- readNextServerMessage ?
---
---
+        ReadForQuery{} -> pure []
+        m              -> (m:) <$> waitReadyForQueryCollect conn
+
+describeStatement
+    :: Connection
+    -> StatementSQL
+    -> IO (Either Error (V.Vector Oid, V.Vector FieldDescription))
+describeStatement conn stmt = do
+    sendMessage s $ Parse sname stmt []
+    sendMessage s $ DescribeStatement sname
+    sendMessage s Sync
+    parseMessages <$> waitReadyForQueryCollect conn
+  where
+    s = connSocket conn
+    sname = StatementName ""
+    parseMessages msgs = case msgs of
+        [ParameterDescription params, NoData]
+            -> Right (params, [])
+        [ParameterDescription params, RowDescription fields]
+            -> Right (params, fields)
+        xs  -> maybe (error "Impossible happened") (Left . PostgresError )
+               $ findFirstError xs
+
+testDescribe1 :: IO ()
+testDescribe1 = do
+    c <- connect defaultConnectionSettings
+    r <- describeStatement c $ StatementSQL "start transaction"
+    print r
+    close c
+
+testDescribe2 :: IO ()
+testDescribe2 = do
+    c <- connect defaultConnectionSettings
+    r <- describeStatement c $ StatementSQL "select count(*) from a where v > $1"
+    print r
+    close c
 
