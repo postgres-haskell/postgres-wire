@@ -1,10 +1,33 @@
+{-# language ApplicativeDo #-}
+{-# language OverloadedLists #-}
+{-# language OverloadedStrings #-}
+{-# language ExistentialQuantification #-}
+{-# language TypeSynonymInstances #-}
+{-# language FlexibleInstances #-}
+module Database.PostgreSQL.Session where
+
+import Control.Monad
+import Control.Applicative
+import Data.Monoid
+import Data.Int
+import Data.ByteString (ByteString)
+import Data.Either
+import qualified Data.Vector as V
+
+import           PostgreSQL.Binary.Encoder (int8_int64, run)
+import qualified PostgreSQL.Binary.Decoder as D(int, run)
+
+import Database.PostgreSQL.Protocol.Types
+import Database.PostgreSQL.Connection
+import Database.PostgreSQL.Settings
+
 data Count = One | Many
     deriving (Eq, Show)
 
 data Session a
     = Done a
     | forall r . Decode r => Receive (r -> Session a)
-    | Send Count [Request] (Session a)
+    | Send Count [Query] (Session a)
 
 instance Functor Session where
     f `fmap` (Done a) = Done $ f a
@@ -43,21 +66,70 @@ instance Monad Session where
 
     (>>) = (*>)
 
-runSession :: Show a => Connection -> Session a -> IO a
-runSession conn@(Connection sock _ chan) = go
+class Encode a where
+    encode :: a -> ByteString
+    getOid :: a -> Oid
+
+class Decode a where
+    decode :: ByteString -> a
+
+instance Encode Int64 where
+    encode   = run int8_int64
+    getOid _ = Oid 20
+
+instance Decode Int64 where
+    decode = fromRight . D.run D.int
+      where
+        fromRight (Right v) = v
+        fromRight _ = error "bad fromRight"
+
+data SessionQuery a b = SessionQuery { sqStatement :: ByteString }
+    deriving (Show)
+
+query :: (Encode a, Decode b) => SessionQuery a b -> a -> Session b
+query sq val =
+    let q = Query { qStatement = sqStatement sq
+                  , qOids = [getOid val]
+                  , qValues = [encode val]
+                  , qParamsFormat = Binary
+                  , qResultFormat = Binary }
+    in Send One [q] $ Receive Done
+
+runSession :: Show a => Connection -> Session a -> IO (Either Error a)
+runSession conn = go 0
   where
-    go (Done x) = do
+    go n (Done x) = do
         putStrLn $ "Return " ++ show x
-        pure x
-    go (Receive f) = do
+        when (n > 0) $ void $ sendSync conn >> readReadyForQuery conn
+        pure $ Right x
+    go n (Receive f) = do
         putStrLn "Receiving"
-        -- TODO receive here
-        -- x <- receive
-        x <- getLine
-        go (f $ decode x)
-    go (Send _ rs c) = do
+        r <- readNextData conn
+        case r of
+            Left e -> pure $ Left e
+            Right (DataMessage rows) -> go n (f $ decode $ V.head $ head rows)
+    go n (Send _ qs c) = do
         putStrLn "Sending requests "
-        -- TODO send requests here in batch
-        sendBatch conn rs
-        go c
+        sendBatch conn qs
+        sendFlush conn
+        go (n + 1) c
+
+q1 :: SessionQuery Int64 Int64
+q1 = SessionQuery "SELECT $1"
+
+q2 :: SessionQuery Int64 Int64
+q2 = SessionQuery "SELECT count(*) from a where v < $1"
+
+q3 :: SessionQuery Int64 Int64
+q3 = SessionQuery "SELECT 5 + $1"
+
+testSession :: IO ()
+testSession  = do
+    c <- connect defaultConnectionSettings
+    r <- runSession c $ do
+        b <- query q1 10
+        a <- query q2 b
+        query q3 a
+    print r
+    close c
 

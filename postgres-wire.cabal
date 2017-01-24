@@ -20,6 +20,7 @@ library
                      , Database.PostgreSQL.Settings
                      , Database.PostgreSQL.StatementStorage
                      , Database.PostgreSQL.Types
+                     , Database.PostgreSQL.Session
 
                      , Database.PostgreSQL.Protocol.Types
                      , Database.PostgreSQL.Protocol.Encoders
@@ -35,6 +36,7 @@ library
                      , hashtables
                      , unagi-chan
                      , unordered-containers
+                     , postgresql-binary
   default-language:    Haskell2010
   default-extensions:  
     OverloadedStrings

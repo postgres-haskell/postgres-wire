@@ -217,52 +217,23 @@ data Query = Query
     , qResultFormat :: Format
     } deriving (Show)
 
-query1 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["1", "3"] Text Text
-query2 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["a", "3"] Text Text
-query3 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["3", "3"] Text Text
-query4 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["4", "3"] Text Text
-
 sendBatch :: Connection -> [Query] -> IO ()
-sendBatch conn qs = do
-    traverse sendSingle $ take 5 qs
-    sendMessage s Sync
+sendBatch conn = traverse_ sendSingle
   where
     s = connSocket conn
+    sname = StatementName ""
+    pname = PortalName ""
     sendSingle q = do
-        let sname = StatementName ""
-            pname = PortalName ""
         sendMessage s $ Parse sname (StatementSQL $ qStatement q) (qOids q)
         sendMessage s $
             Bind pname sname (qParamsFormat q) (qValues q) (qResultFormat q)
         sendMessage s $ Execute pname noLimitToReceive
 
+sendSync :: Connection -> IO ()
+sendSync conn = sendMessage (connSocket conn) Sync
 
-test :: IO ()
-test = do
-    c <- connect defaultConnectionSettings
-    sendBatch c queries
-    readResults c $ length queries
-    readReadyForQuery c >>= print
-    close c
-  where
-    queries = [query1, query2, query3, query4 ]
-    readResults c 0 = pure ()
-    readResults c n = do
-        r <- readNextData c
-        print r
-        case r of
-            Left  _ -> pure ()
-            Right _ -> readResults c $ n - 1
-
--- sendBatchAndSync :: IsQuery a => [a] -> Connection -> IO ()
--- sendBatchAndSync = undefined
-
--- sendBatchAndFlush :: IsQuery a => [a] -> Connection -> IO ()
--- sendBatchAndFlush = undefined
-
--- internal helper
--- sendBatch :: IsQuery a => [a] -> Connection -> IO ()
--- sendBatch = undefined
+sendFlush :: Connection -> IO ()
+sendFlush conn = sendMessage (connSocket conn) Flush
 
 readNextData :: Connection -> IO (Either Error DataMessage)
 readNextData conn = readChan $ connOutDataChan conn
@@ -307,6 +278,40 @@ describeStatement conn stmt = do
             -> Right (params, fields)
         xs  -> maybe (error "Impossible happened") (Left . PostgresError )
                $ findFirstError xs
+
+query1 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["1", "3"] Text Text
+query2 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["a", "3"] Text Text
+query3 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["3", "3"] Text Text
+query4 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["4", "3"] Text Text
+
+
+test :: IO ()
+test = do
+    c <- connect defaultConnectionSettings
+    sendBatch c queries
+    readResults c $ length queries
+    readReadyForQuery c >>= print
+    close c
+  where
+    queries = [query1, query2, query3, query4 ]
+    readResults c 0 = pure ()
+    readResults c n = do
+        r <- readNextData c
+        print r
+        case r of
+            Left  _ -> pure ()
+            Right _ -> readResults c $ n - 1
+
+-- sendBatchAndSync :: IsQuery a => [a] -> Connection -> IO ()
+-- sendBatchAndSync = undefined
+
+-- sendBatchAndFlush :: IsQuery a => [a] -> Connection -> IO ()
+-- sendBatchAndFlush = undefined
+
+-- internal helper
+-- sendBatch :: IsQuery a => [a] -> Connection -> IO ()
+-- sendBatch = undefined
+
 
 testDescribe1 :: IO ()
 testDescribe1 = do
