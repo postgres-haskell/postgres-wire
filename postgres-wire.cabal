@@ -20,7 +20,6 @@ library
                      , Database.PostgreSQL.Settings
                      , Database.PostgreSQL.StatementStorage
                      , Database.PostgreSQL.Types
-                     , Database.PostgreSQL.Session
 
                      , Database.PostgreSQL.Protocol.Types
                      , Database.PostgreSQL.Protocol.Encoders

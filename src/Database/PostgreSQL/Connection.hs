@@ -21,8 +21,8 @@ import Data.Binary.Get ( runGetIncremental, pushChunk)
 import qualified Data.Binary.Get as BG (Decoder(..))
 import Data.Maybe (fromJust)
 import qualified Data.Vector as V
-import System.Socket hiding (connect, close, Error(..))
-import qualified System.Socket as Socket (connect, close)
+import System.Socket (Socket, socket)
+import qualified System.Socket as Socket (connect, close, send, receive)
 import System.Socket.Family.Inet6
 import System.Socket.Type.Stream
 import System.Socket.Protocol.TCP
@@ -41,7 +41,7 @@ import Database.PostgreSQL.Types
 type UnixSocket = Socket Unix Stream Unix
 -- data Connection = Connection (Socket Inet6 Stream TCP)
 data Connection = Connection
-    { connSocket             :: UnixSocket
+    { connRawConnection      :: RawConnection
     , connReceiverThread     :: ThreadId
     -- channel only for Data messages
     , connOutDataChan        :: OutChan (Either Error DataMessage)
@@ -64,6 +64,13 @@ data Error
 data DataMessage = DataMessage [V.Vector B.ByteString]
     deriving (Show)
 
+-- | Abstraction over raw socket connection or tls connection
+data RawConnection = RawConnection
+    { rFlush   :: IO ()
+    , rClose   :: IO ()
+    , rSend    :: B.ByteString -> IO ()
+    , rReceive :: Int -> IO B.ByteString
+    }
 
 address :: SocketAddress Unix
 address = fromJust $ socketAddressUnixPath "/var/run/postgresql/.s.PGSQL.5432"
@@ -73,15 +80,21 @@ connect settings = do
     s <- socket
     Socket.connect s address
     sendStartMessage s $ consStartupMessage settings
-    r <- receive s 4096 mempty
+    r <- Socket.receive s 4096 mempty
     readAuthMessage r
 
     (inDataChan, outDataChan) <- newChan
     (inAllChan, outAllChan) <- newChan
-    tid <- forkIO $ receiverThread s inDataChan inAllChan
+    let rawConnection = RawConnection
+            { rFlush = pure ()
+            , rClose = Socket.close s
+            , rSend = \msg -> void $ Socket.send s msg mempty
+            , rReceive = \n -> Socket.receive s n mempty
+            }
+    tid <- forkIO $ receiverThread rawConnection inDataChan inAllChan
     storage <- newStatementStorage
     pure Connection
-        { connSocket = s
+        { connRawConnection = rawConnection
         , connReceiverThread = tid
         , connOutDataChan = outDataChan
         , connOutAllChan = outAllChan
@@ -96,7 +109,7 @@ connect settings = do
 close :: Connection -> IO ()
 close conn = do
     killThread $ connReceiverThread conn
-    Socket.close $ connSocket conn
+    rClose $ connRawConnection conn
 
 consStartupMessage :: ConnectionSettings -> StartMessage
 consStartupMessage stg = StartupMessage
@@ -105,12 +118,12 @@ consStartupMessage stg = StartupMessage
 sendStartMessage :: UnixSocket -> StartMessage -> IO ()
 sendStartMessage sock msg = void $ do
     let smsg = toStrict . toLazyByteString $ encodeStartMessage msg
-    send sock smsg mempty
+    Socket.send sock smsg mempty
 
-sendMessage :: UnixSocket -> ClientMessage -> IO ()
-sendMessage sock msg = void $ do
+sendMessage :: RawConnection -> ClientMessage -> IO ()
+sendMessage rawConn msg = void $ do
     let smsg = toStrict . toLazyByteString $ encodeClientMessage msg
-    send sock smsg mempty
+    rSend rawConn smsg
 
 readAuthMessage :: B.ByteString -> IO ()
 readAuthMessage s =
@@ -121,15 +134,15 @@ readAuthMessage s =
         f -> error $ show s
 
 receiverThread
-    :: UnixSocket
+    :: RawConnection
     -> InChan (Either Error DataMessage)
     -> InChan ServerMessage
     -> IO ()
-receiverThread sock dataChan allChan = receiveLoop []
+receiverThread rawConn dataChan allChan = receiveLoop []
   where
     receiveLoop :: [V.Vector B.ByteString] -> IO()
     receiveLoop acc = do
-        r <- receive sock 4096 mempty
+        r <- rReceive rawConn 4096
         -- print r
         go r acc >>= receiveLoop
 
@@ -220,7 +233,7 @@ data Query = Query
 sendBatch :: Connection -> [Query] -> IO ()
 sendBatch conn = traverse_ sendSingle
   where
-    s = connSocket conn
+    s = connRawConnection conn
     sname = StatementName ""
     pname = PortalName ""
     sendSingle q = do
@@ -230,10 +243,10 @@ sendBatch conn = traverse_ sendSingle
         sendMessage s $ Execute pname noLimitToReceive
 
 sendSync :: Connection -> IO ()
-sendSync conn = sendMessage (connSocket conn) Sync
+sendSync conn = sendMessage (connRawConnection conn) Sync
 
 sendFlush :: Connection -> IO ()
-sendFlush conn = sendMessage (connSocket conn) Flush
+sendFlush conn = sendMessage (connRawConnection conn) Flush
 
 readNextData :: Connection -> IO (Either Error DataMessage)
 readNextData conn = readChan $ connOutDataChan conn
@@ -269,7 +282,7 @@ describeStatement conn stmt = do
     sendMessage s Sync
     parseMessages <$> waitReadyForQueryCollect conn
   where
-    s = connSocket conn
+    s = connRawConnection conn
     sname = StatementName ""
     parseMessages msgs = case msgs of
         [ParameterDescription params, NoData]
@@ -289,6 +302,7 @@ test :: IO ()
 test = do
     c <- connect defaultConnectionSettings
     sendBatch c queries
+    sendSync c
     readResults c $ length queries
     readReadyForQuery c >>= print
     close c

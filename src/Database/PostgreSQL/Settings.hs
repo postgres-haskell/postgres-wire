@@ -5,8 +5,10 @@ module Database.PostgreSQL.Settings where
 import Data.Word (Word16)
 import Data.ByteString (ByteString)
 
+-- | Connection settings to PostgreSQL
 data ConnectionSettings = ConnectionSettings
-    { settingsHost     :: ByteString
+    { -- On empty string a Unix socket will be used.
+      settingsHost     :: ByteString
     , settingsPort     :: Word16
     , settingsDatabase :: ByteString
     , settingsUser     :: ByteString
