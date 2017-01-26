@@ -9,6 +9,7 @@ module Database.PostgreSQL.Connection where
 
 
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as BS(pack)
 import Data.ByteString.Lazy (toStrict)
 import Data.ByteString.Builder (Builder, toLazyByteString)
 import Control.Monad
@@ -72,29 +73,60 @@ data RawConnection = RawConnection
     , rReceive :: Int -> IO B.ByteString
     }
 
+defaultUnixPathDirectory :: B.ByteString
+defaultUnixPathDirectory = "/var/run/postgresql"
+
+unixPathFilename :: B.ByteString
+unixPathFilename = ".s.PGSQL."
+
 address :: SocketAddress Unix
 address = fromJust $ socketAddressUnixPath "/var/run/postgresql/.s.PGSQL.5432"
 
-connect :: ConnectionSettings -> IO Connection
-connect settings = do
-    s <- socket
+createRawConnection :: ConnectionSettings -> IO RawConnection
+createRawConnection settings = do
+    (s, address) <- createSocket settings
     Socket.connect s address
-    sendStartMessage s $ consStartupMessage settings
-    r <- Socket.receive s 4096 mempty
+    pure $ constructRawConnection s
+  where
+    createSocket settings
+        | host == ""              = unixSocket defaultUnixPathDirectory
+        | "/" `B.isPrefixOf` host = unixSocket host
+        | otherwise               = tcpSocket
+      where
+        host = settingsHost settings
+        unixSocket dirPath = do
+            -- 47 - `/`
+            let dir = B.reverse . B.dropWhile (== 47) $ B.reverse dirPath
+                path = dir <> "/" <> unixPathFilename
+                       <> BS.pack (show $ settingsPort settings)
+                -- TODO check for Nothing
+                address = fromJust $ socketAddressUnixPath path
+            s <- socket :: IO (Socket Unix Stream Unix)
+            pure (s, address)
+        tcpSocket = do
+            undefined
+
+constructRawConnection :: Socket f t p -> RawConnection
+constructRawConnection s = RawConnection
+    { rFlush = pure ()
+    , rClose = Socket.close s
+    , rSend = \msg -> void $ Socket.send s msg mempty
+    , rReceive = \n -> Socket.receive s n mempty
+    }
+
+connect :: ConnectionSettings -> IO Connection
+connect settings =  do
+    rawConn <- createRawConnection settings
+    sendStartMessage rawConn $ consStartupMessage settings
+    r <- rReceive rawConn 4096
     readAuthMessage r
 
     (inDataChan, outDataChan) <- newChan
     (inAllChan, outAllChan) <- newChan
-    let rawConnection = RawConnection
-            { rFlush = pure ()
-            , rClose = Socket.close s
-            , rSend = \msg -> void $ Socket.send s msg mempty
-            , rReceive = \n -> Socket.receive s n mempty
-            }
-    tid <- forkIO $ receiverThread rawConnection inDataChan inAllChan
+    tid <- forkIO $ receiverThread rawConn inDataChan inAllChan
     storage <- newStatementStorage
     pure Connection
-        { connRawConnection = rawConnection
+        { connRawConnection = rawConn
         , connReceiverThread = tid
         , connOutDataChan = outDataChan
         , connOutAllChan = outAllChan
@@ -115,10 +147,10 @@ consStartupMessage :: ConnectionSettings -> StartMessage
 consStartupMessage stg = StartupMessage
     (Username $ settingsUser stg) (DatabaseName $ settingsDatabase stg)
 
-sendStartMessage :: UnixSocket -> StartMessage -> IO ()
-sendStartMessage sock msg = void $ do
+sendStartMessage :: RawConnection -> StartMessage -> IO ()
+sendStartMessage rawConn msg = void $ do
     let smsg = toStrict . toLazyByteString $ encodeStartMessage msg
-    Socket.send sock smsg mempty
+    rSend rawConn smsg
 
 sendMessage :: RawConnection -> ClientMessage -> IO ()
 sendMessage rawConn msg = void $ do
