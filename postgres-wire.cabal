@@ -35,6 +35,7 @@ library
                      , hashtables
                      , unagi-chan
                      , unordered-containers
+                     , unix
                      , postgresql-binary
   default-language:    Haskell2010
   default-extensions:  
