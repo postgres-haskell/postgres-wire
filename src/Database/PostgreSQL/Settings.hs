@@ -22,7 +22,7 @@ data ConnectionSettings = ConnectionSettings
 
 defaultConnectionSettings :: ConnectionSettings
 defaultConnectionSettings = ConnectionSettings
-    { settingsHost     = ""
+    { settingsHost     = "localhost"
     , settingsPort     = 5432
     , settingsDatabase = "testdb"
     , settingsUser     = "v"

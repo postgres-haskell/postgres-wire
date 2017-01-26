@@ -22,9 +22,9 @@ import Data.Binary.Get ( runGetIncremental, pushChunk)
 import qualified Data.Binary.Get as BG (Decoder(..))
 import Data.Maybe (fromJust)
 import qualified Data.Vector as V
-import System.Socket (Socket, socket)
+import System.Socket hiding (connect, close, Error)
 import qualified System.Socket as Socket (connect, close, send, receive)
-import System.Socket.Family.Inet6
+import System.Socket.Family.Inet
 import System.Socket.Type.Stream
 import System.Socket.Protocol.TCP
 import System.Socket.Family.Unix
@@ -79,32 +79,32 @@ defaultUnixPathDirectory = "/var/run/postgresql"
 unixPathFilename :: B.ByteString
 unixPathFilename = ".s.PGSQL."
 
-address :: SocketAddress Unix
-address = fromJust $ socketAddressUnixPath "/var/run/postgresql/.s.PGSQL.5432"
-
 createRawConnection :: ConnectionSettings -> IO RawConnection
-createRawConnection settings = do
-    (s, address) <- createSocket settings
-    Socket.connect s address
-    pure $ constructRawConnection s
+createRawConnection settings
+        | host == ""              = unixConnection defaultUnixPathDirectory
+        | "/" `B.isPrefixOf` host = unixConnection host
+        | otherwise               = tcpConnection
   where
-    createSocket settings
-        | host == ""              = unixSocket defaultUnixPathDirectory
-        | "/" `B.isPrefixOf` host = unixSocket host
-        | otherwise               = tcpSocket
-      where
-        host = settingsHost settings
-        unixSocket dirPath = do
-            -- 47 - `/`
-            let dir = B.reverse . B.dropWhile (== 47) $ B.reverse dirPath
-                path = dir <> "/" <> unixPathFilename
-                       <> BS.pack (show $ settingsPort settings)
-                -- TODO check for Nothing
-                address = fromJust $ socketAddressUnixPath path
-            s <- socket :: IO (Socket Unix Stream Unix)
-            pure (s, address)
-        tcpSocket = do
-            undefined
+    host = settingsHost settings
+    unixConnection dirPath = do
+        -- 47 - `/`
+        let dir = B.reverse . B.dropWhile (== 47) $ B.reverse dirPath
+            path = dir <> "/" <> unixPathFilename
+                   <> BS.pack (show $ settingsPort settings)
+            -- TODO check for Nothing
+            address = fromJust $ socketAddressUnixPath path
+        s <- socket :: IO (Socket Unix Stream Unix)
+        Socket.connect s address
+        pure $ constructRawConnection s
+    tcpConnection = do
+        addressInfo <- getAddressInfo (Just host) Nothing aiV4Mapped
+                        :: IO [AddressInfo Inet Stream TCP]
+        let address = (socketAddress $ head addressInfo)
+                        { inetPort = fromIntegral $ settingsPort settings }
+                -- TODO check for empty
+        s <- socket :: IO (Socket Inet Stream TCP)
+        Socket.connect s address
+        pure $ constructRawConnection s
 
 constructRawConnection :: Socket f t p -> RawConnection
 constructRawConnection s = RawConnection
