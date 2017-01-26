@@ -117,14 +117,14 @@ constructRawConnection s = RawConnection
 connect :: ConnectionSettings -> IO Connection
 connect settings =  do
     rawConn <- createRawConnection settings
-    sendStartMessage rawConn $ consStartupMessage settings
-    r <- rReceive rawConn 4096
-    readAuthMessage r
+    when (settingsTls settings == RequiredTls) $ handshakeTls rawConn
+    authorize rawConn settings
 
     (inDataChan, outDataChan) <- newChan
     (inAllChan, outAllChan) <- newChan
-    tid <- forkIO $ receiverThread rawConn inDataChan inAllChan
     storage <- newStatementStorage
+
+    tid <- forkIO $ receiverThread rawConn inDataChan inAllChan
     pure Connection
         { connRawConnection = rawConn
         , connReceiverThread = tid
@@ -137,6 +137,15 @@ connect settings =  do
             , paramIntegerDatetimes = True
             }
         }
+
+authorize :: RawConnection -> ConnectionSettings -> IO ()
+authorize rawConn settings = do
+    sendStartMessage rawConn $ consStartupMessage settings
+    r <- rReceive rawConn 4096
+    readAuthMessage r
+
+handshakeTls :: RawConnection ->  IO ()
+handshakeTls _ = pure ()
 
 close :: Connection -> IO ()
 close conn = do

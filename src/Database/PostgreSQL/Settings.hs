@@ -5,6 +5,9 @@ module Database.PostgreSQL.Settings where
 import Data.Word (Word16)
 import Data.ByteString (ByteString)
 
+data TlsMode = RequiredTls | NoTls
+    deriving (Show, Eq)
+
 -- | Connection settings to PostgreSQL
 data ConnectionSettings = ConnectionSettings
     { -- Host maybe IP-address or hostname.
@@ -18,6 +21,7 @@ data ConnectionSettings = ConnectionSettings
     , settingsDatabase :: ByteString
     , settingsUser     :: ByteString
     , settingsPassword :: ByteString
+    , settingsTls      :: TlsMode
     } deriving (Show)
 
 defaultConnectionSettings :: ConnectionSettings
@@ -27,5 +31,6 @@ defaultConnectionSettings = ConnectionSettings
     , settingsDatabase = "testdb"
     , settingsUser     = "v"
     , settingsPassword = ""
+    , settingsTls      = RequiredTls
     }
 
