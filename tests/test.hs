@@ -7,21 +7,8 @@ import Database.PostgreSQL.Protocol.Types
 
 main :: IO ()
 main = defaultMain $ testGroup "Postgres-wire"
-    [ testConnection
+    [
     ]
-
-testConnection :: TestTree
-testConnection = testGroup "Connection" $
-    map (\(name, settings) -> testCase name $ connectAndClose settings)
-        [ ("Connection to default socket", defaultConnectionSettings
-            { settingsHost = "" })
-        , ("Connection to Unix socket", defaultConnectionSettings
-            { settingsHost = "/var/run/postgresql" })
-        , ("Connection to TCP ipv4 socket", defaultConnectionSettings
-            { settingsHost = "localhost" })
-        ]
-  where
-    connectAndClose settings = connect settings >>= close
 
 
 query1 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["1", "3"] Text Text

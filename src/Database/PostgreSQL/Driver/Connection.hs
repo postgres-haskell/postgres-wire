@@ -57,6 +57,7 @@ data Error
 data AuthError
     = AuthPostgresError ErrorDesc
     | AuthNotSupported B.ByteString
+    deriving (Show)
 
 data DataMessage = DataMessage [V.Vector B.ByteString]
     deriving (Show)
@@ -116,7 +117,8 @@ connect settings =  do
     when (settingsTls settings == RequiredTls) $ handshakeTls rawConn
     authResult <- authorize rawConn settings
     -- TODO should close connection on error
-    connParams <- either (error "invalid connection") pure authResult
+    connParams <- either (\e -> print e >> error "invalid connection")
+                    pure authResult
 
     (inDataChan, outDataChan) <- newChan
     (inAllChan, outAllChan)   <- newChan
