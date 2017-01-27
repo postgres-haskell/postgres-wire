@@ -27,6 +27,7 @@ import Crypto.Hash (hash, Digest, MD5)
 import Database.PostgreSQL.Protocol.Encoders
 import Database.PostgreSQL.Protocol.Decoders
 import Database.PostgreSQL.Protocol.Types
+
 import Database.PostgreSQL.Driver.Settings
 import Database.PostgreSQL.Driver.StatementStorage
 import Database.PostgreSQL.Driver.Types
@@ -47,7 +48,7 @@ type ServerMessageFilter = ServerMessage -> Bool
 
 type NotificationHandler = Notification -> IO ()
 
--- All possible errors
+-- All possible at errors
 data Error
     = PostgresError ErrorDesc
     | ImpossibleError
@@ -143,7 +144,6 @@ authorize rawConn settings = do
     case pushChunk (runGetIncremental decodeAuthResponse) r of
         BG.Done rest _ r -> case r of
             AuthenticationOk -> do
-                putStrLn "Auth ok"
                 -- TODO parse parameters
                 pure $ Right $ parseParameters rest
             AuthenticationCleartextPassword ->
@@ -162,13 +162,11 @@ authorize rawConn settings = do
     performPasswordAuth
         :: PasswordText -> IO (Either AuthError ConnectionParameters)
     performPasswordAuth password = do
-        putStrLn $ "sending password" ++ show password
         sendMessage rawConn $ PasswordMessage password
         r <- rReceive rawConn 4096
         case pushChunk (runGetIncremental decodeAuthResponse) r of
             BG.Done rest _ r -> case r of
                 AuthenticationOk -> do
-                    putStrLn "Auth ok"
                     pure $ Right $ parseParameters rest
                 AuthErrorResponse desc ->
                     pure $ Left $ AuthPostgresError desc
@@ -305,6 +303,7 @@ data Query = Query
     , qResultFormat :: Format
     } deriving (Show)
 
+-- | Public
 sendBatch :: Connection -> [Query] -> IO ()
 sendBatch conn = traverse_ sendSingle
   where
@@ -317,15 +316,27 @@ sendBatch conn = traverse_ sendSingle
             Bind pname sname (qParamsFormat q) (qValues q) (qResultFormat q)
         sendMessage s $ Execute pname noLimitToReceive
 
+-- | Public
+sendBatchAndSync :: Connection -> [Query] -> IO ()
+sendBatchAndSync conn qs = sendBatch conn qs >> sendSync conn
+
+-- | Public
+sendBatchAndFlush :: Connection -> [Query] -> IO ()
+sendBatchAndFlush conn qs = sendBatch conn qs >> sendFlush conn
+
+-- | Public
 sendSync :: Connection -> IO ()
 sendSync conn = sendMessage (connRawConnection conn) Sync
 
+-- | Public
 sendFlush :: Connection -> IO ()
 sendFlush conn = sendMessage (connRawConnection conn) Flush
 
+-- | Public
 readNextData :: Connection -> IO (Either Error DataMessage)
 readNextData conn = readChan $ connOutDataChan conn
 
+-- | Public
 -- SHOULD BE called after every sended `Sync` message
 -- skips all messages except `ReadyForQuery`
 readReadyForQuery :: Connection -> IO (Either Error ())
@@ -347,6 +358,7 @@ waitReadyForQueryCollect conn = do
         ReadForQuery{} -> pure []
         m              -> (m:) <$> waitReadyForQueryCollect conn
 
+-- | Public
 describeStatement
     :: Connection
     -> StatementSQL
@@ -366,53 +378,4 @@ describeStatement conn stmt = do
             -> Right (params, fields)
         xs  -> maybe (error "Impossible happened") (Left . PostgresError )
                $ findFirstError xs
-
-query1 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["1", "3"] Text Text
-query2 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["a", "3"] Text Text
-query3 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["3", "3"] Text Text
-query4 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["4", "3"] Text Text
-
-
-test :: IO ()
-test = do
-    c <- connect defaultConnectionSettings
-    sendBatch c queries
-    sendSync c
-    readResults c $ length queries
-    readReadyForQuery c >>= print
-    close c
-  where
-    queries = [query1, query2, query3, query4 ]
-    readResults c 0 = pure ()
-    readResults c n = do
-        r <- readNextData c
-        print r
-        case r of
-            Left  _ -> pure ()
-            Right _ -> readResults c $ n - 1
-
--- sendBatchAndSync :: IsQuery a => [a] -> Connection -> IO ()
--- sendBatchAndSync = undefined
-
--- sendBatchAndFlush :: IsQuery a => [a] -> Connection -> IO ()
--- sendBatchAndFlush = undefined
-
--- internal helper
--- sendBatch :: IsQuery a => [a] -> Connection -> IO ()
--- sendBatch = undefined
-
-
-testDescribe1 :: IO ()
-testDescribe1 = do
-    c <- connect defaultConnectionSettings
-    r <- describeStatement c $ StatementSQL "start transaction"
-    print r
-    close c
-
-testDescribe2 :: IO ()
-testDescribe2 = do
-    c <- connect defaultConnectionSettings
-    r <- describeStatement c $ StatementSQL "select count(*) from a where v > $1"
-    print r
-    close c
 

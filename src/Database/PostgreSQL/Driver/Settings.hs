@@ -1,5 +1,3 @@
-{-# language OverloadedStrings #-}
-
 module Database.PostgreSQL.Driver.Settings where
 
 import Data.Word (Word16)
