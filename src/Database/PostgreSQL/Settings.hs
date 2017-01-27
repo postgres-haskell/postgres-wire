@@ -30,7 +30,7 @@ defaultConnectionSettings = ConnectionSettings
     , settingsPort     = 5432
     , settingsDatabase = "testdb"
     , settingsUser     = "v"
-    , settingsPassword = ""
+    , settingsPassword = "123"
     , settingsTls      = RequiredTls
     }
 

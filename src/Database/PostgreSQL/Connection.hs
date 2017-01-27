@@ -28,8 +28,8 @@ import System.Socket.Family.Inet
 import System.Socket.Type.Stream
 import System.Socket.Protocol.TCP
 import System.Socket.Family.Unix
-import Data.Time.Clock.POSIX
 import Control.Concurrent.Chan.Unagi
+import Crypto.Hash (hash, Digest, MD5)
 
 import Database.PostgreSQL.Protocol.Encoders
 import Database.PostgreSQL.Protocol.Decoders
@@ -61,6 +61,10 @@ data Error
     = PostgresError ErrorDesc
     | ImpossibleError
     deriving (Show)
+
+data AuthError
+    = AuthPostgresError ErrorDesc
+    | AuthNotSupported B.ByteString
 
 data DataMessage = DataMessage [V.Vector B.ByteString]
     deriving (Show)
@@ -118,11 +122,13 @@ connect :: ConnectionSettings -> IO Connection
 connect settings =  do
     rawConn <- createRawConnection settings
     when (settingsTls settings == RequiredTls) $ handshakeTls rawConn
-    authorize rawConn settings
+    authResult <- authorize rawConn settings
+    -- TODO should close connection on error
+    connParams <- either (error "invalid connection") pure authResult
 
     (inDataChan, outDataChan) <- newChan
-    (inAllChan, outAllChan) <- newChan
-    storage <- newStatementStorage
+    (inAllChan, outAllChan)   <- newChan
+    storage                   <- newStatementStorage
 
     tid <- forkIO $ receiverThread rawConn inDataChan inAllChan
     pure Connection
@@ -131,18 +137,62 @@ connect settings =  do
         , connOutDataChan = outDataChan
         , connOutAllChan = outAllChan
         , connStatementStorage = storage
-        , connParameters = ConnectionParameters
-            { paramServerVersion = ServerVersion 1 1 1
-            , paramServerEncoding = ""
-            , paramIntegerDatetimes = True
-            }
+        , connParameters = connParams
         }
 
-authorize :: RawConnection -> ConnectionSettings -> IO ()
+authorize
+    :: RawConnection
+    -> ConnectionSettings
+    -> IO (Either AuthError ConnectionParameters)
 authorize rawConn settings = do
     sendStartMessage rawConn $ consStartupMessage settings
+    -- 4096 should be enough for the whole response from a server at
+    -- startup phase.
     r <- rReceive rawConn 4096
-    readAuthMessage r
+    case pushChunk (runGetIncremental decodeAuthResponse) r of
+        BG.Done rest _ r -> case r of
+            AuthenticationOk -> do
+                putStrLn "Auth ok"
+                -- TODO parse parameters
+                pure $ Right $ parseParameters rest
+            AuthenticationCleartextPassword ->
+                performPasswordAuth $ PasswordPlain $ settingsPassword settings
+            AuthenticationMD5Password (MD5Salt salt) ->
+                let pass = "md5" <> md5Hash (md5Hash (settingsPassword settings
+                                 <> settingsUser settings) <> salt)
+                in performPasswordAuth $ PasswordMD5 pass
+            AuthenticationGSS         -> pure $ Left $ AuthNotSupported "GSS"
+            AuthenticationSSPI        -> pure $ Left $ AuthNotSupported "SSPI"
+            AuthenticationGSSContinue _ -> pure $ Left $ AuthNotSupported "GSS"
+            AuthErrorResponse desc    -> pure $ Left $ AuthPostgresError desc
+        -- TODO handle this case
+        f -> error "athorize"
+  where
+    performPasswordAuth
+        :: PasswordText -> IO (Either AuthError ConnectionParameters)
+    performPasswordAuth password = do
+        putStrLn $ "sending password" ++ show password
+        sendMessage rawConn $ PasswordMessage password
+        r <- rReceive rawConn 4096
+        case pushChunk (runGetIncremental decodeAuthResponse) r of
+            BG.Done rest _ r -> case r of
+                AuthenticationOk -> do
+                    putStrLn "Auth ok"
+                    pure $ Right $ parseParameters rest
+                AuthErrorResponse desc ->
+                    pure $ Left $ AuthPostgresError desc
+                _ -> error "Impossible happened"
+            -- TODO handle this case
+            f -> error "authorize"
+    -- TODO right parsing
+    parseParameters :: B.ByteString -> ConnectionParameters
+    parseParameters str = ConnectionParameters
+        { paramServerVersion = ServerVersion 1 1 1
+        , paramIntegerDatetimes = False
+        , paramServerEncoding = ""
+        }
+    md5Hash :: B.ByteString -> B.ByteString
+    md5Hash bs = BS.pack $ show (hash bs :: Digest MD5)
 
 handshakeTls :: RawConnection ->  IO ()
 handshakeTls _ = pure ()
@@ -166,13 +216,6 @@ sendMessage rawConn msg = void $ do
     let smsg = toStrict . toLazyByteString $ encodeClientMessage msg
     rSend rawConn smsg
 
-readAuthMessage :: B.ByteString -> IO ()
-readAuthMessage s =
-    case pushChunk (runGetIncremental decodeAuthResponse) s of
-        BG.Done _ _ r -> case r of
-            AuthenticationOk -> putStrLn "Auth ok"
-            _                -> error "Invalid auth"
-        f -> error $ show s
 
 receiverThread
     :: RawConnection

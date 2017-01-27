@@ -21,11 +21,11 @@ import Database.PostgreSQL.Protocol.Types
 decodeAuthResponse :: Get AuthResponse
 decodeAuthResponse = do
     c <- getWord8
+    len <- getInt32be
     case chr $ fromIntegral c of
         'E' -> AuthErrorResponse <$>
             (getByteString (fromIntegral $ len - 4) >>= decodeErrorDesc)
         'R' -> do
-            len <- getInt32be
             rType <- getInt32be
             case rType of
                 0 -> pure AuthenticationOk
