@@ -1,7 +1,7 @@
 {-
   * We dont store parameters of connection that may change after startup
 -}
-module Database.PostgreSQL.Types where
+module Database.PostgreSQL.Driver.Types where
 
 import Data.ByteString (ByteString)
 

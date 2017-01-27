@@ -1,6 +1,6 @@
 {-# language OverloadedStrings #-}
 
-module Database.PostgreSQL.Settings where
+module Database.PostgreSQL.Driver.Settings where
 
 import Data.Word (Word16)
 import Data.ByteString (ByteString)

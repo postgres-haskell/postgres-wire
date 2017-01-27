@@ -1,4 +1,4 @@
-module Database.PostgreSQL.StatementStorage where
+module Database.PostgreSQL.Driver.StatementStorage where
 
 import qualified Data.HashTable.IO as H
 import qualified Data.ByteString as B
