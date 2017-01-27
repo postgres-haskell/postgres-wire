@@ -7,9 +7,17 @@ import Database.PostgreSQL.Protocol.Types
 
 main :: IO ()
 main = defaultMain $ testGroup "Postgres-wire"
-    [
+    [ testCase "test1" test
+    , testCase "test2" testDescribe1
+    , testCase "test3" testDescribe2
     ]
 
+defaultSettings = defaultConnectionSettings
+    { settingsHost     = "localhost"
+    , settingsDatabase = "travis_test"
+    , settingsUser     = "postgres"
+    , settingsPassword = ""
+    }
 
 query1 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["1", "3"] Text Text
 query2 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["a", "3"] Text Text
