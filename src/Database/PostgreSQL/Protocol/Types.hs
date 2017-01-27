@@ -95,6 +95,8 @@ data AuthResponse
     | AuthenticationGSS
     | AuthenticationSSPI
     | AuthenticationGSSContinue ByteString
+    -- same as ErrorResponse
+    | AuthErrorResponse ErrorDesc
     deriving (Show)
 
 data ClientMessage

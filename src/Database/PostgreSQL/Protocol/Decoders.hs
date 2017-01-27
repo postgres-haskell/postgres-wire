@@ -21,17 +21,22 @@ import Database.PostgreSQL.Protocol.Types
 decodeAuthResponse :: Get AuthResponse
 decodeAuthResponse = do
     c <- getWord8
-    when ('R' /= chr (fromIntegral c)) $ fail "Invalid message"
-    len <- getInt32be
-    rType <- getInt32be
-    case rType of
-        0 -> pure AuthenticationOk
-        3 -> pure AuthenticationCleartextPassword
-        5 -> AuthenticationMD5Password . MD5Salt <$> getByteString 4
-        7 -> pure AuthenticationGSS
-        9 -> pure AuthenticationSSPI
-        8 -> AuthenticationGSSContinue <$> getByteString (fromIntegral $ len -8)
-        _ -> fail "Unknown authentication response"
+    case chr $ fromIntegral c of
+        'E' -> AuthErrorResponse <$>
+            (getByteString (fromIntegral $ len - 4) >>= decodeErrorDesc)
+        'R' -> do
+            len <- getInt32be
+            rType <- getInt32be
+            case rType of
+                0 -> pure AuthenticationOk
+                3 -> pure AuthenticationCleartextPassword
+                5 -> AuthenticationMD5Password . MD5Salt <$> getByteString 4
+                7 -> pure AuthenticationGSS
+                9 -> pure AuthenticationSSPI
+                8 -> AuthenticationGSSContinue <$>
+                        getByteString (fromIntegral $ len -8)
+                _ -> fail "Unknown authentication response"
+        _ -> fail "Invalid auth response"
 
 decodeServerMessage :: Get ServerMessage
 decodeServerMessage = do
