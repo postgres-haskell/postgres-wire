@@ -102,7 +102,8 @@ data AuthResponse
 data ClientMessage
     = Bind PortalName StatementName
         Format                  -- parameter format code, one format for all
-        (Vector ByteString) -- the values of parameters
+        (Vector ByteString)     -- the values of parameters, the empty string
+                                -- is recognized as NULL
         Format                  -- to apply code to all result columns
     -- Postgres use one command `close` for closing both statements and
     -- portals, but we distinguish them
@@ -130,7 +131,8 @@ data ServerMessage
     | BindComplete
     | CloseComplete
     | CommandComplete CommandResult
-    | DataRow (Vector ByteString)
+    | DataRow (Vector ByteString)  -- an empty string should be recognized
+                                   -- as NULL
     | EmptyQueryResponse
     | ErrorResponse ErrorDesc
     | NoData

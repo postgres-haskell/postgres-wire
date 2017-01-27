@@ -51,8 +51,7 @@ decodeServerMessage = do
                                     >>= decodeCommandResult)
         'D' -> do
             columnCount <- fromIntegral <$> getInt16be
-            DataRow <$> V.replicateM columnCount
-                (getInt32be >>= getByteString . fromIntegral)
+            DataRow <$> V.replicateM columnCount decodeValue
         'I' -> pure EmptyQueryResponse
         'E' -> ErrorResponse <$>
             (getByteString (fromIntegral $ len - 4) >>= decodeErrorDesc)
@@ -71,6 +70,12 @@ decodeServerMessage = do
         'T' -> do
             rowsCount <- fromIntegral <$> getInt16be
             RowDescription <$> V.replicateM rowsCount decodeFieldDescription
+
+-- | Decodes a single data value. Length `-1` indicates a NULL column value.
+-- No value bytes follow in the NULL case.
+decodeValue :: Get B.ByteString
+decodeValue = fromIntegral <$> getInt32be >>= \n ->
+    if n == -1 then pure "" else getByteString n
 
 decodeTransactionStatus :: Get TransactionStatus
 decodeTransactionStatus =  getWord8 >>= \t ->

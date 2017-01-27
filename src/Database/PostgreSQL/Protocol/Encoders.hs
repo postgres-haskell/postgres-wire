@@ -36,10 +36,7 @@ encodeClientMessage (Bind (PortalName portalName) (StatementName stmtName)
         int16BE 1 <>
         encodeFormat paramFormat <>
         int16BE (fromIntegral $ V.length values) <>
-        -- TODO -1 indicates a NULL parameter value. No value bytes
-        -- follow in the NULL case.
-        fold ((\v -> int32BE (fromIntegral $ B.length v) <> byteString v)
-              <$> values) <>
+        fold (encodeValue <$> values) <>
         -- `1` means that the specified format code is applied to all
         -- result columns (if any)
         int16BE 1 <>
@@ -75,6 +72,13 @@ encodeClientMessage Sync
     = prependHeader 'S' mempty
 encodeClientMessage Terminate
     = prependHeader 'X' mempty
+
+-- Encodes single data values. Length `-1` indicates a NULL parameter value.
+-- No value bytes follow in the NULL case.
+encodeValue :: B.ByteString -> Builder
+encodeValue v | B.null v = int32BE (-1)
+              | otherwise = int32BE (fromIntegral $ B.length v)
+                            <> byteString v
 
 encodeFormat :: Format -> Builder
 encodeFormat Text   = int16BE 0
