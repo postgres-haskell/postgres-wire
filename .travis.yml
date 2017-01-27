@@ -1,4 +1,5 @@
 # Use new container infrastructure to enable caching
+dist: trusty
 sudo: false
 
 # Do not choose a language; we provide our own build tools.
