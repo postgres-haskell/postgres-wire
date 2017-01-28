@@ -64,6 +64,8 @@ test-suite postgres-wire-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      tests
   main-is:             test.hs
+  other-modules:       Connection
+                     , Protocol
   build-depends:       base
                      , postgres-wire
                      , tasty

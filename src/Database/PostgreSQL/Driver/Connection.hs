@@ -383,7 +383,7 @@ withConnectionMode conn mode handler = do
 -- skips all messages except `ReadyForQuery`
 readReadyForQuery :: Connection -> IO (Either Error ())
 readReadyForQuery = fmap (liftError . findFirstError)
-                    . waitReadyForQueryCollect
+                    . collectBeforeReadyForQuery
   where
     liftError = maybe (Right ()) (Left . PostgresError)
 
@@ -393,12 +393,12 @@ findFirstError (ErrorResponse desc : _) = Just desc
 findFirstError (_ : xs)                 = findFirstError xs
 
 -- Collects all messages received before ReadyForQuery
-waitReadyForQueryCollect :: Connection -> IO [ServerMessage]
-waitReadyForQueryCollect conn = do
+collectBeforeReadyForQuery :: Connection -> IO [ServerMessage]
+collectBeforeReadyForQuery conn = do
     msg <- readChan $ connOutAllChan conn
     case msg of
         ReadForQuery{} -> pure []
-        m              -> (m:) <$> waitReadyForQueryCollect conn
+        m              -> (m:) <$> collectBeforeReadyForQuery conn
 
 -- | Public
 describeStatement
@@ -409,7 +409,7 @@ describeStatement conn stmt = do
     sendMessage s $ Parse sname stmt []
     sendMessage s $ DescribeStatement sname
     sendMessage s Sync
-    parseMessages <$> waitReadyForQueryCollect conn
+    parseMessages <$> collectBeforeReadyForQuery conn
   where
     s = connRawConnection conn
     sname = StatementName ""

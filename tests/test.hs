@@ -1,59 +1,9 @@
-import Control.Exception
+import Test.Tasty (defaultMain, testGroup)
 
-import Test.Tasty
-import Test.Tasty.HUnit
-
-import Database.PostgreSQL.Driver.Connection
-import Database.PostgreSQL.Driver.Settings
-import Database.PostgreSQL.Protocol.Types
+import Protocol
 
 main :: IO ()
 main = defaultMain $ testGroup "Postgres-wire"
-    [ testCase "test1" test
-    , testCase "test2" testDescribe1
-    , testCase "test3" testDescribe2
+    [ testProtocolMessages
     ]
-
-defaultSettings = defaultConnectionSettings
-    { settingsHost     = "localhost"
-    , settingsDatabase = "travis_test"
-    , settingsUser     = "postgres"
-    , settingsPassword = ""
-    }
-
-query1 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["1", "3"] Text Text
-query2 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["a", "3"] Text Text
-query3 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["3", "3"] Text Text
-query4 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["4", "3"] Text Text
-
-withConnection :: (Connection -> IO a) -> IO a
-withConnection = bracket (connect defaultSettings) close
-
-test :: IO ()
-test = withConnection $ \c -> do
-    sendBatch c queries
-    sendSync c
-    readResults c $ length queries
-    readReadyForQuery c >>= print
-  where
-    queries = [query1, query2, query3, query4 ]
-    readResults c 0 = pure ()
-    readResults c n = do
-        r <- readNextData c
-        print r
-        case r of
-            Left  _ -> pure ()
-            Right _ -> readResults c $ n - 1
-
-
-testDescribe1 :: IO ()
-testDescribe1 = withConnection $ \c -> do
-    r <- describeStatement c $ StatementSQL "start transaction"
-    print r
-
-testDescribe2 :: IO ()
-testDescribe2 = withConnection $ \c -> do
-    c <- connect defaultConnectionSettings
-    r <- describeStatement c $ StatementSQL "select count(*) from a where v > $1"
-    print r
 
