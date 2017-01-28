@@ -1,3 +1,5 @@
+import Control.Exception
+
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -24,15 +26,15 @@ query2 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["a", "3"] Text Text
 query3 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["3", "3"] Text Text
 query4 = Query "SELECT $1 + $2" [Oid 23, Oid 23] ["4", "3"] Text Text
 
+withConnection :: (Connection -> IO a) -> IO a
+withConnection = bracket (connect defaultSettings) close
 
 test :: IO ()
-test = do
-    c <- connect defaultConnectionSettings
+test = withConnection $ \c -> do
     sendBatch c queries
     sendSync c
     readResults c $ length queries
     readReadyForQuery c >>= print
-    close c
   where
     queries = [query1, query2, query3, query4 ]
     readResults c 0 = pure ()
@@ -44,18 +46,14 @@ test = do
             Right _ -> readResults c $ n - 1
 
 
-
 testDescribe1 :: IO ()
-testDescribe1 = do
-    c <- connect defaultConnectionSettings
+testDescribe1 = withConnection $ \c -> do
     r <- describeStatement c $ StatementSQL "start transaction"
     print r
-    close c
 
 testDescribe2 :: IO ()
-testDescribe2 = do
+testDescribe2 = withConnection $ \c -> do
     c <- connect defaultConnectionSettings
     r <- describeStatement c $ StatementSQL "select count(*) from a where v > $1"
     print r
-    close c
 

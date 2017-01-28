@@ -40,4 +40,4 @@ install:
 
 script:
 # Build the package, its tests, and its docs and run the tests
-  - stack --no-terminal test :postgres-wire-test-connection
+  - stack --no-terminal test :postgres-wire-test

@@ -1,3 +1,4 @@
+{-# LANGUAGE RecursiveDo #-}
 module Database.PostgreSQL.Driver.Connection where
 
 
@@ -9,6 +10,7 @@ import Control.Monad
 import Data.Traversable
 import Data.Foldable
 import Control.Applicative
+import Data.IORef
 import Data.Monoid
 import Control.Concurrent (forkIO, killThread, ThreadId, threadDelay)
 import Data.Binary.Get ( runGetIncremental, pushChunk)
@@ -32,6 +34,14 @@ import Database.PostgreSQL.Driver.Settings
 import Database.PostgreSQL.Driver.StatementStorage
 import Database.PostgreSQL.Driver.Types
 
+data ConnectionMode
+    -- | In this mode, all result's data is ignored
+    = SimpleQueryMode
+    -- | Usual mode
+    | ExtendedQueryMode
+
+defaultConnectionMode :: ConnectionMode
+defaultConnectionMode = ExtendedQueryMode
 
 data Connection = Connection
     { connRawConnection      :: RawConnection
@@ -42,6 +52,7 @@ data Connection = Connection
     , connOutAllChan         :: OutChan ServerMessage
     , connStatementStorage   :: StatementStorage
     , connParameters         :: ConnectionParameters
+    , connMode               :: IORef ConnectionMode
     }
 
 type ServerMessageFilter = ServerMessage -> Bool
@@ -112,7 +123,10 @@ constructRawConnection s = RawConnection
     }
 
 connect :: ConnectionSettings -> IO Connection
-connect settings =  do
+connect settings = connectWith settings defaultFilter
+
+connectWith :: ConnectionSettings -> ServerMessageFilter -> IO Connection
+connectWith settings msgFilter =  do
     rawConn <- createRawConnection settings
     when (settingsTls settings == RequiredTls) $ handshakeTls rawConn
     authResult <- authorize rawConn settings
@@ -123,16 +137,20 @@ connect settings =  do
     (inDataChan, outDataChan) <- newChan
     (inAllChan, outAllChan)   <- newChan
     storage                   <- newStatementStorage
+    modeRef                   <- newIORef defaultConnectionMode
 
-    tid <- forkIO $ receiverThread rawConn inDataChan inAllChan
-    pure Connection
-        { connRawConnection = rawConn
-        , connReceiverThread = tid
-        , connOutDataChan = outDataChan
-        , connOutAllChan = outAllChan
-        , connStatementStorage = storage
-        , connParameters = connParams
-        }
+    tid <- forkIO $
+        receiverThread msgFilter rawConn inDataChan inAllChan modeRef
+    rec conn <- pure Connection
+            { connRawConnection = rawConn
+            , connReceiverThread = tid
+            , connOutDataChan = outDataChan
+            , connOutAllChan = outAllChan
+            , connStatementStorage = storage
+            , connParameters = connParams
+            , connMode = modeRef
+            }
+    pure conn
 
 authorize
     :: RawConnection
@@ -145,7 +163,7 @@ authorize rawConn settings = do
     r <- rReceive rawConn 4096
     case pushChunk (runGetIncremental decodeAuthResponse) r of
         BG.Done rest _ r -> case r of
-            AuthenticationOk -> do
+            AuthenticationOk ->
                 -- TODO parse parameters
                 pure $ Right $ parseParameters rest
             AuthenticationCleartextPassword ->
@@ -168,7 +186,7 @@ authorize rawConn settings = do
         r <- rReceive rawConn 4096
         case pushChunk (runGetIncremental decodeAuthResponse) r of
             BG.Done rest _ r -> case r of
-                AuthenticationOk -> do
+                AuthenticationOk ->
                     pure $ Right $ parseParameters rest
                 AuthErrorResponse desc ->
                     pure $ Left $ AuthPostgresError desc
@@ -209,11 +227,13 @@ sendMessage rawConn msg = void $ do
 
 
 receiverThread
-    :: RawConnection
+    :: ServerMessageFilter
+    -> RawConnection
     -> InChan (Either Error DataMessage)
     -> InChan ServerMessage
+    -> IORef ConnectionMode
     -> IO ()
-receiverThread rawConn dataChan allChan = receiveLoop []
+receiverThread msgFilter rawConn dataChan allChan modeRef = receiveLoop []
   where
     receiveLoop :: [V.Vector B.ByteString] -> IO()
     receiveLoop acc = do
@@ -226,8 +246,7 @@ receiverThread rawConn dataChan allChan = receiveLoop []
     go str acc = case pushChunk decoder str of
         BG.Done rest _ v -> do
             -- putStrLn $ "Received: " ++ show v
-            -- TODO select filter
-            when (defaultFilter v) $ writeChan allChan v
+            when (msgFilter v) $ writeChan allChan v
             newAcc <- dispatch v acc
             if B.null rest
                 then pure newAcc
@@ -261,6 +280,10 @@ receiverThread rawConn dataChan allChan = receiveLoop []
     dispatch PortalSuspended acc = pure acc
     -- do nothing on other messages
     dispatch _ acc = pure acc
+
+-- | For testings purposes.
+filterAllowedAll :: ServerMessageFilter
+filterAllowedAll _ = True
 
 defaultFilter :: ServerMessageFilter
 defaultFilter msg = case msg of
@@ -337,6 +360,23 @@ sendFlush conn = sendMessage (connRawConnection conn) Flush
 -- | Public
 readNextData :: Connection -> IO (Either Error DataMessage)
 readNextData conn = readChan $ connOutDataChan conn
+
+-- | Public
+sendSimpleQuery :: Connection -> B.ByteString -> IO (Either Error ())
+sendSimpleQuery conn q = withConnectionMode conn SimpleQueryMode $ \c -> do
+    sendMessage (connRawConnection c) $ SimpleQuery (StatementSQL q)
+    readReadyForQuery c
+
+withConnectionMode
+    :: Connection -> ConnectionMode -> (Connection -> IO a) -> IO a
+withConnectionMode conn mode handler = do
+    oldMode <- readIORef ref
+    atomicWriteIORef ref mode
+    r <- handler conn
+    atomicWriteIORef ref oldMode
+    pure r
+  where
+    ref = connMode conn
 
 -- | Public
 -- SHOULD BE called after every sended `Sync` message
