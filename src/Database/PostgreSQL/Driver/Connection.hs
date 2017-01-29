@@ -71,7 +71,7 @@ data AuthError
     deriving (Show)
 
 data DataMessage = DataMessage [V.Vector B.ByteString]
-    deriving (Show)
+    deriving (Show, Eq)
 
 -- | Abstraction over raw socket connection or tls connection
 data RawConnection = RawConnection
@@ -122,6 +122,7 @@ constructRawConnection s = RawConnection
     , rReceive = \n -> Socket.receive s n mempty
     }
 
+-- | Public
 connect :: ConnectionSettings -> IO Connection
 connect settings = connectWith settings defaultFilter
 
@@ -206,25 +207,11 @@ authorize rawConn settings = do
 handshakeTls :: RawConnection ->  IO ()
 handshakeTls _ = pure ()
 
+-- | Public
 close :: Connection -> IO ()
 close conn = do
     killThread $ connReceiverThread conn
     rClose $ connRawConnection conn
-
-consStartupMessage :: ConnectionSettings -> StartMessage
-consStartupMessage stg = StartupMessage
-    (Username $ settingsUser stg) (DatabaseName $ settingsDatabase stg)
-
-sendStartMessage :: RawConnection -> StartMessage -> IO ()
-sendStartMessage rawConn msg = void $ do
-    let smsg = toStrict . toLazyByteString $ encodeStartMessage msg
-    rSend rawConn smsg
-
-sendMessage :: RawConnection -> ClientMessage -> IO ()
-sendMessage rawConn msg = void $ do
-    let smsg = toStrict . toLazyByteString $ encodeClientMessage msg
-    rSend rawConn smsg
-
 
 receiverThread
     :: ServerMessageFilter
@@ -320,6 +307,22 @@ defaultFilter msg = case msg of
     -- as result for `describe` message
     RowDescription{}       -> True
 
+consStartupMessage :: ConnectionSettings -> StartMessage
+consStartupMessage stg = StartupMessage
+    (Username $ settingsUser stg) (DatabaseName $ settingsDatabase stg)
+
+sendStartMessage :: RawConnection -> StartMessage -> IO ()
+sendStartMessage rawConn msg = void $ do
+    let smsg = toStrict . toLazyByteString $ encodeStartMessage msg
+    rSend rawConn smsg
+
+sendMessage :: RawConnection -> ClientMessage -> IO ()
+sendMessage rawConn msg = void $ do
+    let smsg = toStrict . toLazyByteString $ encodeClientMessage msg
+    rSend rawConn smsg
+
+
+-- Public
 data Query = Query
     { qStatement    :: B.ByteString
     , qOids         :: V.Vector Oid
@@ -349,11 +352,9 @@ sendBatchAndSync conn qs = sendBatch conn qs >> sendSync conn
 sendBatchAndFlush :: Connection -> [Query] -> IO ()
 sendBatchAndFlush conn qs = sendBatch conn qs >> sendFlush conn
 
--- | Public
 sendSync :: Connection -> IO ()
 sendSync conn = sendMessage (connRawConnection conn) Sync
 
--- | Public
 sendFlush :: Connection -> IO ()
 sendFlush conn = sendMessage (connRawConnection conn) Flush
 
