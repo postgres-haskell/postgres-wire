@@ -44,6 +44,7 @@ fromMessage :: DataMessage -> B.ByteString
 fromMessage (DataMessage [[v]]) = v
 fromMessage _                   = error "from message"
 
+-- | Single batch.
 testBatch :: IO ()
 testBatch = withConnection $ \c -> do
     let a = "5"
@@ -56,6 +57,7 @@ testBatch = withConnection $ \c -> do
     DataMessage [[a]] @=? fromRight r1
     DataMessage [[b]] @=? fromRight r2
 
+-- | Two batches in single transaction.
 testTwoBatches :: IO ()
 testTwoBatches = withConnection $ \c -> do
     let a = 7
@@ -71,6 +73,7 @@ testTwoBatches = withConnection $ \c -> do
 
     DataMessage [[BS.pack (show $ a + b)]] @=? fromRight r
 
+-- | Multiple batches with individual transactions in single connection.
 testMultipleBatches :: IO ()
 testMultipleBatches = withConnection $ replicateM_ 10 . assertSingleBatch
   where
@@ -79,20 +82,22 @@ testMultipleBatches = withConnection $ replicateM_ 10 . assertSingleBatch
             b = "6"
         sendBatchAndSync c [ makeQuery1 a, makeQuery1 b]
         r1 <- readNextData c
-        r2 <- readNextData c
-        readReadyForQuery c
         DataMessage [[a]] @=? fromRight r1
+        r2 <- readNextData c
         DataMessage [[b]] @=? fromRight r2
+        readReadyForQuery c
 
+-- | Query is empty string.
 testEmptyQuery :: IO ()
 testEmptyQuery = assertQueryNoData $
     Query "" [] [] Text Text
 
+-- | Query than returns no datarows.
 testQueryWithoutResult :: IO ()
 testQueryWithoutResult = assertQueryNoData $
     Query "SET client_encoding TO UTF8" [] [] Text Text
 
--- helper
+-- | Asserts that query returns no data rows.
 assertQueryNoData :: Query -> IO ()
 assertQueryNoData q = withConnection $ \c -> do
     sendBatchAndSync c [q]
@@ -114,6 +119,7 @@ checkInvalidResult conn n = readNextData conn >>=
     either (const $ pure ())
            (const $ checkInvalidResult conn (n -1))
 
+-- | Diffirent invalid queries in batches.
 testInvalidBatch :: IO ()
 testInvalidBatch = do
     let rightQuery = makeQuery1 "5"
@@ -136,6 +142,7 @@ testInvalidBatch = do
         readReadyForQuery c
         checkInvalidResult c $ length qs
 
+-- | Describes usual statement.
 testDescribeStatement :: IO ()
 testDescribeStatement = withConnection $ \c -> do
     r <- describeStatement c $
@@ -145,18 +152,21 @@ testDescribeStatement = withConnection $ \c -> do
             <> "and typisdefined = $2"
     assertBool "Should be Right" $ isRight r
 
+-- | Describes statement that returns no data.
 testDescribeStatementNoData :: IO ()
 testDescribeStatementNoData = withConnection $ \c -> do
     r <- fromRight <$> describeStatement c "SET client_encoding TO UTF8"
     assertBool "Should be empty" $ V.null (fst r)
     assertBool "Should be empty" $ V.null (snd r)
 
+-- | Describes statement that is empty string.
 testDescribeStatementEmpty :: IO ()
 testDescribeStatementEmpty = withConnection $ \c -> do
     r <- fromRight <$> describeStatement c ""
     assertBool "Should be empty" $ V.null (fst r)
     assertBool "Should be empty" $ V.null (snd r)
 
+-- | Query using simple query protocol.
 testSimpleQuery :: IO ()
 testSimpleQuery = withConnection $ \c -> do
     r <- sendSimpleQuery c $
