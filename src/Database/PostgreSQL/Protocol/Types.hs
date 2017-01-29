@@ -16,7 +16,7 @@ import Data.ByteString (ByteString)
 import Data.Vector (Vector)
 
 -- Common
-newtype Oid           = Oid { unOid :: Int32 }    deriving (Show)
+newtype Oid           = Oid { unOid :: Int32 }    deriving (Show, Eq)
 newtype StatementName = StatementName ByteString  deriving (Show)
 newtype StatementSQL  = StatementSQL ByteString   deriving (Show, Eq, Hashable)
 newtype PortalName    = PortalName ByteString     deriving (Show)

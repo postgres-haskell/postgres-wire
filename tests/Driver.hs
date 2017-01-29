@@ -6,6 +6,7 @@ import Control.Monad
 import Data.Either
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.Vector as V
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -22,6 +23,9 @@ testDriver = testGroup "Driver"
     , testCase "Empty query" testEmptyQuery
     , testCase "Query without result" testQueryWithoutResult
     , testCase "Invalid queries" testInvalidBatch
+    , testCase "Describe statement" testDescribeStatement
+    , testCase "Describe statement with no data" testDescribeStatementNoData
+    , testCase "Describe empty statement" testDescribeStatementEmpty
     ]
 
 makeQuery1 :: B.ByteString -> Query
@@ -116,4 +120,25 @@ testInvalidBatch = do
         sendBatchAndSync c qs
         readReadyForQuery c
         checkInvalidResult c $ length qs
+
+testDescribeStatement :: IO ()
+testDescribeStatement = withConnection $ \c -> do
+    r <- describeStatement c $
+               "select typname, typnamespace, typowner, typlen, typbyval,"
+            <> "typcategory, typispreferred, typisdefined, typdelim, typrelid,"
+            <> "typelem, typarray from pg_type where typtypmod = $1 "
+            <> "and typisdefined = $2"
+    assertBool "Should be Right" $ isRight r
+
+testDescribeStatementNoData :: IO ()
+testDescribeStatementNoData = withConnection $ \c -> do
+    r <- fromRight <$> describeStatement c "SET client_encoding TO UTF8"
+    assertBool "Should be empty" $ V.null (fst r)
+    assertBool "Should be empty" $ V.null (snd r)
+
+testDescribeStatementEmpty :: IO ()
+testDescribeStatementEmpty = withConnection $ \c -> do
+    r <- fromRight <$> describeStatement c ""
+    assertBool "Should be empty" $ V.null (fst r)
+    assertBool "Should be empty" $ V.null (snd r)
 

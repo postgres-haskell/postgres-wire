@@ -404,10 +404,10 @@ collectBeforeReadyForQuery conn = do
 -- | Public
 describeStatement
     :: Connection
-    -> StatementSQL
+    -> B.ByteString
     -> IO (Either Error (V.Vector Oid, V.Vector FieldDescription))
 describeStatement conn stmt = do
-    sendMessage s $ Parse sname stmt []
+    sendMessage s $ Parse sname (StatementSQL stmt) []
     sendMessage s $ DescribeStatement sname
     sendMessage s Sync
     parseMessages <$> collectBeforeReadyForQuery conn
