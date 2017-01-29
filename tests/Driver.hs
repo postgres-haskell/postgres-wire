@@ -20,12 +20,14 @@ testDriver :: TestTree
 testDriver = testGroup "Driver"
     [ testCase "Single batch" testBatch
     , testCase "Two batches" testTwoBatches
+    , testCase "Multiple batches" testMultipleBatches
     , testCase "Empty query" testEmptyQuery
     , testCase "Query without result" testQueryWithoutResult
     , testCase "Invalid queries" testInvalidBatch
     , testCase "Describe statement" testDescribeStatement
     , testCase "Describe statement with no data" testDescribeStatementNoData
     , testCase "Describe empty statement" testDescribeStatementEmpty
+    , testCase "SimpleQuery" testSimpleQuery
     ]
 
 makeQuery1 :: B.ByteString -> Query
@@ -38,6 +40,9 @@ fromRight :: Either e a -> a
 fromRight (Right v) = v
 fromRight _         = error "fromRight"
 
+fromMessage :: DataMessage -> B.ByteString
+fromMessage (DataMessage [[v]]) = v
+fromMessage _                   = error "from message"
 
 testBatch :: IO ()
 testBatch = withConnection $ \c -> do
@@ -65,9 +70,19 @@ testTwoBatches = withConnection $ \c -> do
     readReadyForQuery c
 
     DataMessage [[BS.pack (show $ a + b)]] @=? fromRight r
+
+testMultipleBatches :: IO ()
+testMultipleBatches = withConnection $ replicateM_ 10 . assertSingleBatch
   where
-    fromMessage (DataMessage [[v]]) = v
-    fromMessage _                   = error "from message"
+    assertSingleBatch c = do
+        let a = "5"
+            b = "6"
+        sendBatchAndSync c [ makeQuery1 a, makeQuery1 b]
+        r1 <- readNextData c
+        r2 <- readNextData c
+        readReadyForQuery c
+        DataMessage [[a]] @=? fromRight r1
+        DataMessage [[b]] @=? fromRight r2
 
 testEmptyQuery :: IO ()
 testEmptyQuery = assertQueryNoData $
@@ -141,4 +156,14 @@ testDescribeStatementEmpty = withConnection $ \c -> do
     r <- fromRight <$> describeStatement c ""
     assertBool "Should be empty" $ V.null (fst r)
     assertBool "Should be empty" $ V.null (snd r)
+
+testSimpleQuery :: IO ()
+testSimpleQuery = withConnection $ \c -> do
+    r <- sendSimpleQuery c $
+               "DROP TABLE IF EXISTS a;"
+            <> "CREATE TABLE a(v int);"
+            <> "INSERT INTO a VALUES (1), (2), (3);"
+            <> "SELECT * FROM a;"
+            <> "DROP TABLE a;"
+    assertBool "Should be Right" $ isRight r
 
