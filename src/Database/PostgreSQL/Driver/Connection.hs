@@ -38,6 +38,11 @@ defaultConnectionMode = ExtendedQueryMode
 type ServerMessageFilter = ServerMessage -> Bool
 type NotificationHandler = Notification -> IO ()
 
+type Dispatcher
+    =  InChan (Either Error DataMessage)
+    -> ServerMessage
+    -> [V.Vector B.ByteString]
+    -> IO [V.Vector B.ByteString]
 data DataMessage = DataMessage [V.Vector B.ByteString]
     deriving (Show, Eq)
 
@@ -185,7 +190,8 @@ receiverThread msgFilter rawConn dataChan allChan modeRef = receiveLoop []
         BG.Done rest _ v -> do
             -- putStrLn $ "Received: " ++ show v
             when (msgFilter v) $ writeChan allChan v
-            newAcc <- dispatch dataChan v acc
+            mode <- readIORef modeRef
+            newAcc <- dispatch mode dataChan v acc
             if B.null rest
                 then pure newAcc
                 else go rest newAcc
@@ -193,33 +199,42 @@ receiverThread msgFilter rawConn dataChan allChan modeRef = receiveLoop []
         BG.Partial _ -> error "Partial"
         BG.Fail _ _ e -> error e
 
-dispatch
-    :: InChan (Either Error DataMessage)
-    -> ServerMessage
-    -> [V.Vector B.ByteString]
-    -> IO [V.Vector B.ByteString]
--- Command is completed, return the result
-dispatch dataChan (CommandComplete _) acc = do
-    writeChan dataChan . Right . DataMessage $ reverse acc
-    pure []
--- note that data rows go in reversed order
-dispatch dataChan (DataRow row) acc = pure (row:acc)
--- PostgreSQL sends this if query string was empty and datarows should be
--- empty, but anyway we return data collected in `acc`.
-dispatch dataChan EmptyQueryResponse acc = do
-    writeChan dataChan . Right . DataMessage $ reverse acc
-    pure []
--- On ErrorResponse we should discard all the collected datarows
-dispatch dataChan (ErrorResponse desc) acc = do
-    writeChan dataChan $ Left $ PostgresError desc
-    pure []
--- TODO handle notifications
-dispatch dataChan (NotificationResponse n) acc = pure acc
--- We does not handled this case because we always send `execute`
--- with no limit.
-dispatch dataChan PortalSuspended acc = pure acc
--- do nothing on other messages
-dispatch dataChan _ acc = pure acc
+dispatch :: ConnectionMode -> Dispatcher
+dispatch SimpleQueryMode   = dispatchSimple
+dispatch ExtendedQueryMode = dispatchExtended
+
+-- | Dispatcher for the SimpleQuery mode.
+dispatchSimple :: Dispatcher
+dispatchSimple dataChan message acc = case message of
+    NotificationResponse n -> pure acc
+    -- do nothing on other messages
+    _ -> pure acc
+
+-- | Dispatcher for the ExtendedQuery mode.
+dispatchExtended :: Dispatcher
+dispatchExtended dataChan message acc = case message of
+    -- Command is completed, return the result
+    CommandComplete _ -> do
+        writeChan dataChan . Right . DataMessage $ reverse acc
+        pure []
+    -- note that data rows go in reversed order
+    DataRow row -> pure (row:acc)
+    -- PostgreSQL sends this if query string was empty and datarows should be
+    -- empty, but anyway we return data collected in `acc`.
+    EmptyQueryResponse -> do
+        writeChan dataChan . Right . DataMessage $ reverse acc
+        pure []
+    -- On ErrorResponse we should discard all the collected datarows
+    ErrorResponse desc -> do
+        writeChan dataChan $ Left $ PostgresError desc
+        pure []
+    -- TODO handle notifications
+    NotificationResponse n -> pure acc
+    -- We does not handled this case because we always send `execute`
+    -- with no limit.
+    PortalSuspended -> pure acc
+    -- do nothing on other messages
+    _ -> pure acc
 
 -- | For testings purposes.
 filterAllowedAll :: ServerMessageFilter
