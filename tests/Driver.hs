@@ -12,6 +12,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Database.PostgreSQL.Driver.Connection
+import Database.PostgreSQL.Driver.Query
 import Database.PostgreSQL.Protocol.Types
 
 import Connection

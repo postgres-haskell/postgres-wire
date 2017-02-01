@@ -17,9 +17,11 @@ library
   hs-source-dirs:      src
   exposed-modules:     Database.PostgreSQL.Driver
                      , Database.PostgreSQL.Driver.Connection
+                     , Database.PostgreSQL.Driver.RawConnection
                      , Database.PostgreSQL.Driver.Settings
                      , Database.PostgreSQL.Driver.StatementStorage
-                     , Database.PostgreSQL.Driver.Types
+                     , Database.PostgreSQL.Driver.Error
+                     , Database.PostgreSQL.Driver.Query
 
                      , Database.PostgreSQL.Protocol.Types
                      , Database.PostgreSQL.Protocol.Encoders

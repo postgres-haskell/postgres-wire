@@ -2,6 +2,7 @@ module Connection where
 
 import Control.Exception (bracket)
 import Database.PostgreSQL.Driver.Connection
+import Database.PostgreSQL.Driver.Error
 import Database.PostgreSQL.Driver.Settings
 
 -- | Creates connection with default filter.
