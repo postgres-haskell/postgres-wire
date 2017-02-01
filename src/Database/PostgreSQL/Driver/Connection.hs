@@ -1,3 +1,4 @@
+{-# language FlexibleContexts #-}
 module Database.PostgreSQL.Driver.Connection where
 
 
@@ -7,6 +8,7 @@ import Data.ByteString.Lazy (toStrict)
 import Data.ByteString.Builder (Builder, toLazyByteString)
 import Control.Monad
 import Data.Traversable
+import Safe (headMay)
 import Data.Foldable
 import Control.Applicative
 import Data.IORef
@@ -87,7 +89,6 @@ defaultUnixPathDirectory = "/var/run/postgresql"
 unixPathFilename :: B.ByteString
 unixPathFilename = ".s.PGSQL."
 
-
 createRawConnection :: ConnectionSettings -> IO (Either Error RawConnection)
 createRawConnection settings
         | host == ""              = unixConnection defaultUnixPathDirectory
@@ -96,30 +97,26 @@ createRawConnection settings
   where
     unixConnection dirPath = do
         let mAddress = socketAddressUnixPath $ makeUnixPath dirPath
-        case mAddress of
-            Nothing -> throwAuthErrorInIO AuthInvalidAddress
-            Just address -> do
-                s <- socket :: IO (Socket Unix Stream Unix)
-                Socket.connect s address
-                pure . Right $ constructRawConnection s
+        createAndConnect mAddress (socket :: IO (Socket Unix Stream Unix))
 
     tcpConnection = do
-        addressInfo <- getAddressInfo (Just host) Nothing aiV4Mapped
-                        :: IO [AddressInfo Inet Stream TCP]
-        case socketAddress <$> addressInfo of
-            []          -> throwAuthErrorInIO AuthInvalidAddress
-            (address:_) -> do
-                s <- socket :: IO (Socket Inet Stream TCP)
-                Socket.connect s address
-                    { inetPort = fromIntegral $ settingsPort settings }
-                pure . Right $ constructRawConnection s
+        mAddress <- fmap socketAddress . headMay <$>
+            (getAddressInfo (Just host) (Just portStr) aiV4Mapped
+             :: IO [AddressInfo Inet Stream TCP])
+        createAndConnect mAddress (socket :: IO (Socket Inet Stream TCP))
 
-    host = settingsHost settings
+    createAndConnect Nothing creating = throwAuthErrorInIO AuthInvalidAddress
+    createAndConnect (Just address) creating = do
+        s <- creating
+        Socket.connect s address
+        pure . Right $ constructRawConnection s
+
+    portStr = BS.pack . show $ settingsPort settings
+    host    = settingsHost settings
     makeUnixPath dirPath =
         -- 47 - `/`, removing slash on the end of the path
         let dir = B.reverse . B.dropWhile (== 47) $ B.reverse dirPath
-        in dir <> "/" <> unixPathFilename
-               <> BS.pack (show $ settingsPort settings)
+        in dir <> "/" <> unixPathFilename <> portStr
 
 constructRawConnection :: Socket f t p -> RawConnection
 constructRawConnection s = RawConnection

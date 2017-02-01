@@ -30,6 +30,7 @@ library
                      , socket-unix
                      , vector
                      , binary
+                     , safe
                      , time
                      , hashable
                      , hashtables

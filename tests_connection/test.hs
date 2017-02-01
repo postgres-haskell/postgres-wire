@@ -28,7 +28,7 @@ testConnection name confContent = testCase name $ withPghba confContent $
         , defaultSettings { settingsHost = "localhost" }
         ]
   where
-    connectAndClose settings = connect settings >>= close
+    connectAndClose settings = connect settings >>= either (error . show) close
     defaultSettings = ConnectionSettings
         { settingsHost     = ""
         , settingsPort     = 5432
