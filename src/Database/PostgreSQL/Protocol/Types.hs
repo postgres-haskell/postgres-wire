@@ -12,7 +12,7 @@ module Database.PostgreSQL.Protocol.Types where
 import Data.Word (Word32, Word8)
 import Data.Int (Int32, Int16)
 import Data.Hashable (Hashable)
-import Data.ByteString (ByteString)
+import Data.ByteString as B(ByteString, null)
 import Data.Vector (Vector)
 
 -- Common
@@ -69,7 +69,8 @@ data ServerVersion = ServerVersion Word8 Word8 Word8 ByteString
 
 instance Show ServerVersion where
     show (ServerVersion major minor revision desc) =
-        show major ++ "." ++ show minor ++ "." ++ show revision ++ show desc
+        "v" ++ show major ++ "." ++ show minor ++ "." ++ show revision
+        ++ if B.null desc then "" else show desc
 
 data TransactionStatus
     -- | not in a transaction block
