@@ -29,6 +29,7 @@ testDriver = testGroup "Driver"
     , testCase "Describe statement with no data" testDescribeStatementNoData
     , testCase "Describe empty statement" testDescribeStatementEmpty
     , testCase "SimpleQuery" testSimpleQuery
+    , testCase "SimpleAndExtendedQuery" testSimpleAndExtendedQuery
     ]
 
 makeQuery1 :: B.ByteString -> Query
@@ -177,4 +178,23 @@ testSimpleQuery = withConnection $ \c -> do
             <> "SELECT * FROM a;"
             <> "DROP TABLE a;"
     assertBool "Should be Right" $ isRight r
+
+-- | Simple and extended queries in a sinle connection.
+testSimpleAndExtendedQuery :: IO ()
+testSimpleAndExtendedQuery = withConnection $ \c -> do
+    let a = "7"
+        b = "2"
+        d = "5"
+    sendBatchAndSync c [ makeQuery1 a , makeQuery1 b]
+    readReadyForQuery c
+    checkRightResult c 2
+
+    rs <- sendSimpleQuery c "SELECT * FROM generate_series(1, 10)"
+    assertBool "Should be Right" $ isRight rs
+
+    sendBatchAndSync c [makeQuery1 d]
+    fr <- readReadyForQuery c
+    assertBool "Should be Right" $ isRight fr
+    r <- fromMessage . fromRight <$> readNextData c
+    r @=? d
 
