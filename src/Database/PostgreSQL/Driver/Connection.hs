@@ -89,6 +89,7 @@ defaultUnixPathDirectory = "/var/run/postgresql"
 unixPathFilename :: B.ByteString
 unixPathFilename = ".s.PGSQL."
 
+-- | Creates a raw connection and connects to a server.
 createRawConnection :: ConnectionSettings -> IO (Either Error RawConnection)
 createRawConnection settings
         | host == ""              = unixConnection defaultUnixPathDirectory
@@ -164,58 +165,59 @@ buildConnection rawConn connParams msgFilter = do
         , connMode = modeRef
         }
 
+-- | Authorizes on the server and reads connection parameters.
 authorize
     :: RawConnection
     -> ConnectionSettings
     -> IO (Either Error ConnectionParameters)
 authorize rawConn settings = do
-    sendStartMessage rawConn $ consStartupMessage settings
-    -- 4096 should be enough for the whole response from a server at
-    -- startup phase.
-    r <- rReceive rawConn 4096
-    case pushChunk (runGetIncremental decodeAuthResponse) r of
-        BG.Done rest _ r -> case r of
-            AuthenticationOk ->
-                -- TODO parse parameters
-                pure $ Right $ parseParameters rest
-            AuthenticationCleartextPassword ->
-                performPasswordAuth $ PasswordPlain $ settingsPassword settings
-            AuthenticationMD5Password (MD5Salt salt) ->
-                let pass = "md5" <> md5Hash (md5Hash (settingsPassword settings
-                                 <> settingsUser settings) <> salt)
-                in performPasswordAuth $ PasswordMD5 pass
-            AuthenticationGSS         ->
-                throwAuthErrorInIO $ AuthNotSupported "GSS"
-            AuthenticationSSPI        ->
-                throwAuthErrorInIO $ AuthNotSupported "SSPI"
-            AuthenticationGSSContinue _ ->
-                throwAuthErrorInIO $ AuthNotSupported "GSS"
-            AuthErrorResponse desc    ->
-                throwErrorInIO $ PostgresError desc
-        -- TODO handle this case
-        f -> error "athorize"
+    sendStartMessage rawConn $ StartupMessage
+        (Username $ settingsUser settings)
+        (DatabaseName $ settingsDatabase settings)
+    readAuthResponse
   where
-    performPasswordAuth password = do
-        sendMessage rawConn $ PasswordMessage password
+    readAuthResponse = do
+        -- 4096 should be enough for the whole response from a server at
+        -- the startup phase.
         r <- rReceive rawConn 4096
         case pushChunk (runGetIncremental decodeAuthResponse) r of
             BG.Done rest _ r -> case r of
                 AuthenticationOk ->
-                    pure $ Right $ parseParameters rest
-                AuthErrorResponse desc ->
+                    pure $ parseParameters rest
+                AuthenticationCleartextPassword ->
+                    performPasswordAuth makePlainPassword
+                AuthenticationMD5Password (MD5Salt salt) ->
+                    performPasswordAuth $ makeMd5Password salt
+                AuthenticationGSS         ->
+                    throwAuthErrorInIO $ AuthNotSupported "GSS"
+                AuthenticationSSPI        ->
+                    throwAuthErrorInIO $ AuthNotSupported "SSPI"
+                AuthenticationGSSContinue _ ->
+                    throwAuthErrorInIO $ AuthNotSupported "GSS"
+                AuthErrorResponse desc    ->
                     throwErrorInIO $ PostgresError desc
-                _ -> error "Impossible happened"
             -- TODO handle this case
-            f -> error "authorize"
-    -- TODO right parsing
-    parseParameters :: B.ByteString -> ConnectionParameters
-    parseParameters str = ConnectionParameters
-        { paramServerVersion = ServerVersion 1 1 1
-        , paramIntegerDatetimes = False
-        , paramServerEncoding = ""
-        }
-    md5Hash :: B.ByteString -> B.ByteString
+            -- data receiving error
+            f -> error "athorize"
+
+    performPasswordAuth password = do
+        sendMessage rawConn $ PasswordMessage password
+        readAuthResponse
+
+    makePlainPassword = PasswordPlain $ settingsPassword settings
+    makeMd5Password salt = PasswordMD5 $
+        "md5" <> md5Hash (md5Hash
+            (settingsPassword settings <> settingsUser settings) <> salt)
     md5Hash bs = BS.pack $ show (hash bs :: Digest MD5)
+
+-- TODO right parsing
+-- | Parses connection parameters.
+parseParameters :: B.ByteString -> Either Error ConnectionParameters
+parseParameters str = Right ConnectionParameters
+    { paramServerVersion = ServerVersion 1 1 1
+    , paramIntegerDatetimes = False
+    , paramServerEncoding = ""
+    }
 
 handshakeTls :: RawConnection ->  IO ()
 handshakeTls _ = pure ()
@@ -320,9 +322,6 @@ defaultFilter msg = case msg of
     -- as result for `describe` message
     RowDescription{}       -> True
 
-consStartupMessage :: ConnectionSettings -> StartMessage
-consStartupMessage stg = StartupMessage
-    (Username $ settingsUser stg) (DatabaseName $ settingsDatabase stg)
 
 sendStartMessage :: RawConnection -> StartMessage -> IO ()
 sendStartMessage rawConn msg = void $ do
