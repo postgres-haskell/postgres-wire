@@ -1,4 +1,3 @@
-{-# LANGUAGE RecursiveDo #-}
 module Database.PostgreSQL.Driver.Connection where
 
 
@@ -62,12 +61,13 @@ type NotificationHandler = Notification -> IO ()
 -- All possible at errors
 data Error
     = PostgresError ErrorDesc
-    | ImpossibleError
+    | AuthError AuthError
+    | ImpossibleError B.ByteString
     deriving (Show)
 
 data AuthError
-    = AuthPostgresError ErrorDesc
-    | AuthNotSupported B.ByteString
+    = AuthNotSupported B.ByteString
+    | AuthInvalidAddress
     deriving (Show)
 
 data DataMessage = DataMessage [V.Vector B.ByteString]
@@ -87,32 +87,39 @@ defaultUnixPathDirectory = "/var/run/postgresql"
 unixPathFilename :: B.ByteString
 unixPathFilename = ".s.PGSQL."
 
-createRawConnection :: ConnectionSettings -> IO RawConnection
+
+createRawConnection :: ConnectionSettings -> IO (Either Error RawConnection)
 createRawConnection settings
         | host == ""              = unixConnection defaultUnixPathDirectory
         | "/" `B.isPrefixOf` host = unixConnection host
         | otherwise               = tcpConnection
   where
-    host = settingsHost settings
     unixConnection dirPath = do
-        -- 47 - `/`
-        let dir = B.reverse . B.dropWhile (== 47) $ B.reverse dirPath
-            path = dir <> "/" <> unixPathFilename
-                   <> BS.pack (show $ settingsPort settings)
-            -- TODO check for Nothing
-            address = fromJust $ socketAddressUnixPath path
-        s <- socket :: IO (Socket Unix Stream Unix)
-        Socket.connect s address
-        pure $ constructRawConnection s
+        let mAddress = socketAddressUnixPath $ makeUnixPath dirPath
+        case mAddress of
+            Nothing -> throwAuthErrorInIO AuthInvalidAddress
+            Just address -> do
+                s <- socket :: IO (Socket Unix Stream Unix)
+                Socket.connect s address
+                pure . Right $ constructRawConnection s
+
     tcpConnection = do
         addressInfo <- getAddressInfo (Just host) Nothing aiV4Mapped
                         :: IO [AddressInfo Inet Stream TCP]
-        let address = (socketAddress $ head addressInfo)
-                        { inetPort = fromIntegral $ settingsPort settings }
-                -- TODO check for empty
-        s <- socket :: IO (Socket Inet Stream TCP)
-        Socket.connect s address
-        pure $ constructRawConnection s
+        case socketAddress <$> addressInfo of
+            []          -> throwAuthErrorInIO AuthInvalidAddress
+            (address:_) -> do
+                s <- socket :: IO (Socket Inet Stream TCP)
+                Socket.connect s address
+                    { inetPort = fromIntegral $ settingsPort settings }
+                pure . Right $ constructRawConnection s
+
+    host = settingsHost settings
+    makeUnixPath dirPath =
+        -- 47 - `/`, removing slash on the end of the path
+        let dir = B.reverse . B.dropWhile (== 47) $ B.reverse dirPath
+        in dir <> "/" <> unixPathFilename
+               <> BS.pack (show $ settingsPort settings)
 
 constructRawConnection :: Socket f t p -> RawConnection
 constructRawConnection s = RawConnection
@@ -123,18 +130,26 @@ constructRawConnection s = RawConnection
     }
 
 -- | Public
-connect :: ConnectionSettings -> IO Connection
+connect :: ConnectionSettings -> IO (Either Error Connection)
 connect settings = connectWith settings defaultFilter
 
-connectWith :: ConnectionSettings -> ServerMessageFilter -> IO Connection
-connectWith settings msgFilter =  do
-    rawConn <- createRawConnection settings
-    when (settingsTls settings == RequiredTls) $ handshakeTls rawConn
-    authResult <- authorize rawConn settings
-    -- TODO should close connection on error
-    connParams <- either (\e -> print e >> error "invalid connection")
-                    pure authResult
+connectWith
+    :: ConnectionSettings
+    -> ServerMessageFilter
+    -> IO (Either Error Connection)
+connectWith settings msgFilter =
+    createRawConnection settings >>=
+        either throwErrorInIO (\rawConn ->
+            authorize rawConn settings >>=
+                either throwErrorInIO (\params ->
+                    Right <$> buildConnection rawConn params msgFilter))
 
+buildConnection
+    :: RawConnection
+    -> ConnectionParameters
+    -> ServerMessageFilter
+    -> IO Connection
+buildConnection rawConn connParams msgFilter = do
     (inDataChan, outDataChan) <- newChan
     (inAllChan, outAllChan)   <- newChan
     storage                   <- newStatementStorage
@@ -142,21 +157,20 @@ connectWith settings msgFilter =  do
 
     tid <- forkIO $
         receiverThread msgFilter rawConn inDataChan inAllChan modeRef
-    rec conn <- pure Connection
-            { connRawConnection = rawConn
-            , connReceiverThread = tid
-            , connOutDataChan = outDataChan
-            , connOutAllChan = outAllChan
-            , connStatementStorage = storage
-            , connParameters = connParams
-            , connMode = modeRef
-            }
-    pure conn
+    pure Connection
+        { connRawConnection = rawConn
+        , connReceiverThread = tid
+        , connOutDataChan = outDataChan
+        , connOutAllChan = outAllChan
+        , connStatementStorage = storage
+        , connParameters = connParams
+        , connMode = modeRef
+        }
 
 authorize
     :: RawConnection
     -> ConnectionSettings
-    -> IO (Either AuthError ConnectionParameters)
+    -> IO (Either Error ConnectionParameters)
 authorize rawConn settings = do
     sendStartMessage rawConn $ consStartupMessage settings
     -- 4096 should be enough for the whole response from a server at
@@ -173,15 +187,17 @@ authorize rawConn settings = do
                 let pass = "md5" <> md5Hash (md5Hash (settingsPassword settings
                                  <> settingsUser settings) <> salt)
                 in performPasswordAuth $ PasswordMD5 pass
-            AuthenticationGSS         -> pure $ Left $ AuthNotSupported "GSS"
-            AuthenticationSSPI        -> pure $ Left $ AuthNotSupported "SSPI"
-            AuthenticationGSSContinue _ -> pure $ Left $ AuthNotSupported "GSS"
-            AuthErrorResponse desc    -> pure $ Left $ AuthPostgresError desc
+            AuthenticationGSS         ->
+                throwAuthErrorInIO $ AuthNotSupported "GSS"
+            AuthenticationSSPI        ->
+                throwAuthErrorInIO $ AuthNotSupported "SSPI"
+            AuthenticationGSSContinue _ ->
+                throwAuthErrorInIO $ AuthNotSupported "GSS"
+            AuthErrorResponse desc    ->
+                throwErrorInIO $ PostgresError desc
         -- TODO handle this case
         f -> error "athorize"
   where
-    performPasswordAuth
-        :: PasswordText -> IO (Either AuthError ConnectionParameters)
     performPasswordAuth password = do
         sendMessage rawConn $ PasswordMessage password
         r <- rReceive rawConn 4096
@@ -190,7 +206,7 @@ authorize rawConn settings = do
                 AuthenticationOk ->
                     pure $ Right $ parseParameters rest
                 AuthErrorResponse desc ->
-                    pure $ Left $ AuthPostgresError desc
+                    throwErrorInIO $ PostgresError desc
                 _ -> error "Impossible happened"
             -- TODO handle this case
             f -> error "authorize"
@@ -321,7 +337,6 @@ sendMessage rawConn msg = void $ do
     let smsg = toStrict . toLazyByteString $ encodeClientMessage msg
     rSend rawConn smsg
 
-
 -- Public
 data Query = Query
     { qStatement    :: B.ByteString
@@ -421,4 +436,10 @@ describeStatement conn stmt = do
             -> Right (params, fields)
         xs  -> maybe (error "Impossible happened") (Left . PostgresError )
                $ findFirstError xs
+
+throwErrorInIO :: Error -> IO (Either Error a)
+throwErrorInIO = pure . Left
+
+throwAuthErrorInIO :: AuthError -> IO (Either Error a)
+throwAuthErrorInIO = pure . Left . AuthError
 
