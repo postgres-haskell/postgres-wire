@@ -7,6 +7,7 @@ import Database.PostgreSQL.Protocol.Types (ErrorDesc)
 -- All possible errors.
 data Error
     = PostgresError ErrorDesc
+    | DecodeError ByteString
     | AuthError AuthError
     | ImpossibleError ByteString
     deriving (Show)

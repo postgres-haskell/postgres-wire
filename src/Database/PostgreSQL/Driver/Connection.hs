@@ -139,9 +139,10 @@ authorize rawConn settings = do
                     throwAuthErrorInIO $ AuthNotSupported "GSS"
                 AuthErrorResponse desc    ->
                     throwErrorInIO $ PostgresError desc
-            -- TODO handle this case
-            -- data receiving error
-            f -> error "athorize"
+            -- this case is near impossible and ignored
+            BG.Partial _ -> throwErrorInIO $
+                                DecodeError "partial auth response"
+            BG.Fail _ _ reason -> throwErrorInIO . DecodeError $ BS.pack reason
 
     performPasswordAuth password = do
         sendMessage rawConn $ PasswordMessage password
@@ -153,26 +154,34 @@ authorize rawConn settings = do
             (settingsPassword settings <> settingsUser settings) <> salt)
     md5Hash bs = BS.pack $ show (hash bs :: Digest MD5)
 
--- TODO right parsing
 -- | Parses connection parameters.
 parseParameters :: B.ByteString -> Either Error ConnectionParameters
-parseParameters str =
-    let dict = go str HM.empty
-    in Right ConnectionParameters
-    { paramServerVersion = ServerVersion 1 1 1 ""
-    , paramIntegerDatetimes = False
-    , paramServerEncoding = ""
-    }
+parseParameters str = do
+    dict <- go str HM.empty
+    serverVersion    <- parseServerVersion =<< lookupKey "server_version" dict
+    serverEncoding   <- lookupKey "server_encoding" dict
+    integerDatetimes <- parseBool <$> lookupKey "integer_datetimes" dict
+    pure ConnectionParameters
+        { paramServerVersion    = serverVersion
+        , paramIntegerDatetimes = integerDatetimes
+        , paramServerEncoding   = serverEncoding
+        }
   where
+    lookupKey key = maybe
+        (Left . DecodeError $ "Missing connection parameter " <> key ) Right
+        . HM.lookup key
+    parseBool bs | bs == "on" || bs == "yes" || bs == "1" = True
+                 | otherwise                              = False
     decoder = runGetIncremental decodeServerMessage
-    go str dict | B.null str = dict
+    go str dict | B.null str = Right dict
                 | otherwise = case pushChunk decoder str of
         BG.Done rest _ v -> case v of
             ParameterStatus name value -> go rest $ HM.insert name value dict
+            -- messages like `BackendData` not handled
             _                          -> go rest dict
-        -- TODO right parsing
-        BG.Partial _ -> error "Partial"
-        BG.Fail _ _ e -> error e
+        -- this case is near impossible and ignored
+        BG.Partial _ -> Left $ DecodeError "partial auth response"
+        BG.Fail _ _ reason -> Left . DecodeError $ BS.pack reason
 
 parseServerVersion :: B.ByteString -> Either Error ServerVersion
 parseServerVersion bs =
@@ -181,7 +190,7 @@ parseServerVersion bs =
     in case numbers ++ repeat (Just 0) of
         (Just major : Just minor : Just rev : _) ->
             Right $ ServerVersion major minor rev desc
-        _ -> Left $ undefined
+        _ -> Left $ DecodeError "parse server version"
   where
     isDigitDot c | c == 46           = True -- dot
                  | c >= 48 && c < 58 = True -- digits
@@ -215,7 +224,6 @@ receiverThread msgFilter rawConn dataChan allChan modeRef = receiveLoop []
     go :: B.ByteString -> [V.Vector B.ByteString] -> IO [V.Vector B.ByteString]
     go str acc = case pushChunk decoder str of
         BG.Done rest _ v -> do
-            -- putStrLn $ "Received: " ++ show v
             when (msgFilter v) $ writeChan allChan v
             mode <- readIORef modeRef
             newAcc <- dispatch mode dataChan v acc
@@ -224,7 +232,7 @@ receiverThread msgFilter rawConn dataChan allChan modeRef = receiveLoop []
                 else go rest newAcc
         -- TODO right parsing
         BG.Partial _ -> error "Partial"
-        BG.Fail _ _ e -> error e
+        BG.Fail _ _ reason -> error reason
 
 dispatch :: ConnectionMode -> Dispatcher
 dispatch SimpleQueryMode   = dispatchSimple
@@ -234,7 +242,6 @@ dispatch ExtendedQueryMode = dispatchExtended
 dispatchSimple :: Dispatcher
 dispatchSimple dataChan message acc = case message of
     NotificationResponse n -> pure acc
-    -- do nothing on other messages
     _ -> pure acc
 
 -- | Dispatcher for the ExtendedQuery mode.
@@ -301,7 +308,6 @@ defaultFilter msg = case msg of
     ReadForQuery{}         -> True
     -- as result for `describe` message
     RowDescription{}       -> True
-
 
 -- Low-level sending functions
 
