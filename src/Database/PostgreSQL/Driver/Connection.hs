@@ -1,7 +1,7 @@
 module Database.PostgreSQL.Driver.Connection where
 
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Char8 as BS(pack)
+import qualified Data.ByteString.Char8 as BS(pack, unpack)
 import Data.ByteString.Lazy (toStrict)
 import Data.ByteString.Builder (Builder, toLazyByteString)
 import Control.Monad
@@ -10,11 +10,13 @@ import Data.Foldable
 import Control.Applicative
 import Data.IORef
 import Data.Monoid
+import Text.Read
 import Control.Concurrent (forkIO, killThread, ThreadId, threadDelay)
 import Data.Binary.Get ( runGetIncremental, pushChunk)
 import qualified Data.Binary.Get as BG (Decoder(..))
 import qualified Data.Vector as V
 import Control.Concurrent.Chan.Unagi
+import qualified Data.HashMap.Strict as HM
 import Crypto.Hash (hash, Digest, MD5)
 
 import Database.PostgreSQL.Protocol.Encoders
@@ -154,11 +156,36 @@ authorize rawConn settings = do
 -- TODO right parsing
 -- | Parses connection parameters.
 parseParameters :: B.ByteString -> Either Error ConnectionParameters
-parseParameters str = Right ConnectionParameters
-    { paramServerVersion = ServerVersion 1 1 1
+parseParameters str =
+    let dict = go str HM.empty
+    in Right ConnectionParameters
+    { paramServerVersion = ServerVersion 1 1 1 ""
     , paramIntegerDatetimes = False
     , paramServerEncoding = ""
     }
+  where
+    decoder = runGetIncremental decodeServerMessage
+    go str dict | B.null str = dict
+                | otherwise = case pushChunk decoder str of
+        BG.Done rest _ v -> case v of
+            ParameterStatus name value -> go rest $ HM.insert name value dict
+            _                          -> go rest dict
+        -- TODO right parsing
+        BG.Partial _ -> error "Partial"
+        BG.Fail _ _ e -> error e
+
+parseServerVersion :: B.ByteString -> Either Error ServerVersion
+parseServerVersion bs =
+    let (numbersStr, desc) = B.span isDigitDot bs
+        numbers = readMaybe . BS.unpack <$> B.split 46 numbersStr
+    in case numbers ++ repeat (Just 0) of
+        (Just major : Just minor : Just rev : _) ->
+            Right $ ServerVersion major minor rev desc
+        _ -> Left $ undefined
+  where
+    isDigitDot c | c == 46           = True -- dot
+                 | c >= 48 && c < 58 = True -- digits
+                 | otherwise         = False
 
 handshakeTls :: RawConnection ->  IO ()
 handshakeTls _ = pure ()

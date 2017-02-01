@@ -33,18 +33,20 @@ testDriver = testGroup "Driver"
     ]
 
 makeQuery1 :: B.ByteString -> Query
-makeQuery1 n = Query "SELECT $1" [Oid 23] [n] Text Text
+makeQuery1 n = Query "SELECT $1" (V.fromList [Oid 23]) (V.fromList [n])
+                    Text Text
 
 makeQuery2 :: B.ByteString -> B.ByteString -> Query
-makeQuery2 n1 n2 = Query "SELECT $1 + $2" [Oid 23, Oid 23] [n1, n2] Text Text
+makeQuery2 n1 n2 = Query "SELECT $1 + $2" (V.fromList [Oid 23, Oid 23])
+                    (V.fromList [n1, n2]) Text Text
 
 fromRight :: Either e a -> a
 fromRight (Right v) = v
 fromRight _         = error "fromRight"
 
-fromMessage :: DataMessage -> B.ByteString
-fromMessage (DataMessage [[v]]) = v
-fromMessage _                   = error "from message"
+fromMessage :: Either e DataMessage -> B.ByteString
+fromMessage (Right (DataMessage [v])) = V.head v
+fromMessage _                     = error "from message"
 
 -- | Single batch.
 testBatch :: IO ()
@@ -56,8 +58,8 @@ testBatch = withConnection $ \c -> do
 
     r1 <- readNextData c
     r2 <- readNextData c
-    DataMessage [[a]] @=? fromRight r1
-    DataMessage [[b]] @=? fromRight r2
+    a @=? fromMessage r1
+    b @=? fromMessage r2
 
 -- | Two batches in single transaction.
 testTwoBatches :: IO ()
@@ -66,14 +68,14 @@ testTwoBatches = withConnection $ \c -> do
         b = 2
     sendBatchAndFlush c [ makeQuery1 (BS.pack (show a))
                         , makeQuery1 (BS.pack (show b))]
-    r1 <- fromMessage . fromRight <$> readNextData c
-    r2 <- fromMessage . fromRight <$> readNextData c
+    r1 <- fromMessage <$> readNextData c
+    r2 <- fromMessage <$> readNextData c
 
     sendBatchAndSync c [makeQuery2 r1 r2]
     r <- readNextData c
     readReadyForQuery c
 
-    DataMessage [[BS.pack (show $ a + b)]] @=? fromRight r
+    BS.pack (show $ a + b) @=? fromMessage r
 
 -- | Multiple batches with individual transactions in single connection.
 testMultipleBatches :: IO ()
@@ -84,20 +86,20 @@ testMultipleBatches = withConnection $ replicateM_ 10 . assertSingleBatch
             b = "6"
         sendBatchAndSync c [ makeQuery1 a, makeQuery1 b]
         r1 <- readNextData c
-        DataMessage [[a]] @=? fromRight r1
+        a @=? fromMessage r1
         r2 <- readNextData c
-        DataMessage [[b]] @=? fromRight r2
+        b @=? fromMessage r2
         readReadyForQuery c
 
 -- | Query is empty string.
 testEmptyQuery :: IO ()
 testEmptyQuery = assertQueryNoData $
-    Query "" [] [] Text Text
+    Query "" V.empty V.empty Text Text
 
 -- | Query than returns no datarows.
 testQueryWithoutResult :: IO ()
 testQueryWithoutResult = assertQueryNoData $
-    Query "SET client_encoding TO UTF8" [] [] Text Text
+    Query "SET client_encoding TO UTF8" V.empty V.empty Text Text
 
 -- | Asserts that query returns no data rows.
 assertQueryNoData :: Query -> IO ()
@@ -125,10 +127,10 @@ checkInvalidResult conn n = readNextData conn >>=
 testInvalidBatch :: IO ()
 testInvalidBatch = do
     let rightQuery = makeQuery1 "5"
-        q1 = Query "SEL $1" [Oid 23] ["5"] Text Text
-        q2 = Query "SELECT $1" [Oid 23] ["a"] Text Text
-        q3 = Query "SELECT $1" [Oid 23] [] Text Text
-        q4 = Query "SELECT $1" [] ["5"] Text Text
+        q1 = Query "SEL $1" (V.fromList [Oid 23]) (V.fromList ["5"]) Text Text
+        q2 = Query "SELECT $1" (V.fromList [Oid 23]) (V.fromList ["a"]) Text Text
+        q3 = Query "SELECT $1" (V.fromList [Oid 23]) (V.fromList []) Text Text
+        q4 = Query "SELECT $1" (V.fromList []) (V.fromList ["5"]) Text Text
 
     assertInvalidBatch "Parse error" [q1]
     assertInvalidBatch "Invalid param" [ q2]
@@ -195,6 +197,6 @@ testSimpleAndExtendedQuery = withConnection $ \c -> do
     sendBatchAndSync c [makeQuery1 d]
     fr <- readReadyForQuery c
     assertBool "Should be Right" $ isRight fr
-    r <- fromMessage . fromRight <$> readNextData c
+    r <- fromMessage <$> readNextData c
     r @=? d
 

@@ -61,11 +61,15 @@ data CommandResult
     deriving (Show)
 
 -- | Server version contains major, minor, revision numbers.
-data ServerVersion = ServerVersion Word8 Word8 Word8
+-- Examples:
+--   9.6.0        ServerVersion 9 6 0 ""
+--   10.1beta2  - ServerVersion 10 1 0 "beta2"
+data ServerVersion = ServerVersion Word8 Word8 Word8 ByteString
+    deriving (Eq)
 
 instance Show ServerVersion where
-    show (ServerVersion major minor revision) =
-        show major ++ "." ++ show minor ++ "." ++ show revision
+    show (ServerVersion major minor revision desc) =
+        show major ++ "." ++ show minor ++ "." ++ show revision ++ show desc
 
 data TransactionStatus
     -- | not in a transaction block

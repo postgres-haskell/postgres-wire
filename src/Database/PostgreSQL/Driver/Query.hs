@@ -88,7 +88,7 @@ describeStatement
     -> B.ByteString
     -> IO (Either Error (V.Vector Oid, V.Vector FieldDescription))
 describeStatement conn stmt = do
-    sendMessage s $ Parse sname (StatementSQL stmt) []
+    sendMessage s $ Parse sname (StatementSQL stmt) V.empty
     sendMessage s $ DescribeStatement sname
     sendMessage s Sync
     parseMessages <$> collectBeforeReadyForQuery conn
@@ -97,7 +97,7 @@ describeStatement conn stmt = do
     sname = StatementName ""
     parseMessages msgs = case msgs of
         [ParameterDescription params, NoData]
-            -> Right (params, [])
+            -> Right (params, V.empty)
         [ParameterDescription params, RowDescription fields]
             -> Right (params, fields)
         xs  -> maybe (error "Impossible happened") (Left . PostgresError )

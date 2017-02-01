@@ -3,6 +3,7 @@ module Protocol where
 import Data.Monoid ((<>))
 import Data.Foldable
 import Control.Monad
+import qualified Data.Vector as V
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -46,9 +47,9 @@ testExtendedQuery = withConnectionAll $ \c -> do
         sname = StatementName "statement"
         pname = PortalName "portal"
         statement = StatementSQL "SELECT $1 + $2"
-    sendMessage rawConn $ Parse sname statement [Oid 23, Oid 23]
+    sendMessage rawConn $ Parse sname statement (V.fromList [Oid 23, Oid 23])
     sendMessage rawConn $
-        Bind pname sname Text ["1", "2"] Text
+        Bind pname sname Text (V.fromList ["1", "2"]) Text
     sendMessage rawConn $ Execute pname noLimitToReceive
     sendMessage rawConn $ DescribeStatement sname
     sendMessage rawConn $ DescribePortal pname
@@ -86,7 +87,7 @@ testExtendedQuery = withConnectionAll $ \c -> do
 -- string is empty.
 testExtendedEmptyQuery :: IO ()
 testExtendedEmptyQuery = withConnectionAll $ \c -> do
-    let query = Query "" [] [] Text Text
+    let query = Query "" V.empty V.empty Text Text
     sendBatchAndSync c [query]
     msgs <- collectBeforeReadyForQuery c
     assertNoErrorResponse msgs
@@ -102,7 +103,7 @@ testExtendedQueryNoData = withConnectionAll $ \c -> do
     let rawConn   = connRawConnection c
         sname     = StatementName "statement"
         statement = StatementSQL "SET client_encoding to UTF8"
-    sendMessage rawConn $ Parse sname statement []
+    sendMessage rawConn $ Parse sname statement V.empty
     sendMessage rawConn $ DescribeStatement sname
     sendMessage rawConn Sync
 
