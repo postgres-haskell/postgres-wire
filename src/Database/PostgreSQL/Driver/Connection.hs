@@ -50,7 +50,7 @@ data DataMessage = DataMessage [V.Vector B.ByteString]
 
 -- | Parameters of the current connection.
 -- We store only the parameters that cannot change after startup.
--- For more information about additional parameters see documentation.
+-- For more information about additional parameters see PostgreSQL documentation.
 data ConnectionParameters = ConnectionParameters
     { paramServerVersion    :: ServerVersion
     , paramServerEncoding   :: B.ByteString   -- ^ character set name
@@ -331,4 +331,15 @@ withConnectionMode conn mode handler = do
     pure r
   where
     ref = connMode conn
+
+-- Information about connection
+
+getServerVersion :: Connection -> ServerVersion
+getServerVersion = paramServerVersion . connParameters
+
+getServerEncoding :: Connection -> B.ByteString
+getServerEncoding = paramServerEncoding . connParameters
+
+getIntegerDatetimes :: Connection -> Bool
+getIntegerDatetimes = paramIntegerDatetimes . connParameters
 
