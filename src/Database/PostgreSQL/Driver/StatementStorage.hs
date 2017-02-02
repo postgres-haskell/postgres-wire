@@ -24,8 +24,8 @@ newStatementStorage = StatementStorage <$> H.new <*> newIORef 0
 lookupStatement :: StatementStorage -> StatementSQL -> IO (Maybe StatementName)
 lookupStatement (StatementStorage table _) = H.lookup table
 
-storageStatement :: StatementStorage -> StatementSQL -> IO StatementName
-storageStatement (StatementStorage table counter) stmt = do
+storeStatement :: StatementStorage -> StatementSQL -> IO StatementName
+storeStatement (StatementStorage table counter) stmt = do
     n <- readIORef counter
     writeIORef counter $ n + 1
     let name = StatementName . pack $ show n
@@ -34,4 +34,7 @@ storageStatement (StatementStorage table counter) stmt = do
 
 getCacheSize :: StatementStorage -> IO Word
 getCacheSize (StatementStorage _ counter) = readIORef counter
+
+defaultStatementName :: StatementName
+defaultStatementName = StatementName ""
 

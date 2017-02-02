@@ -31,6 +31,7 @@ testDriver = testGroup "Driver"
     , testCase "Describe empty statement" testDescribeStatementEmpty
     , testCase "SimpleQuery" testSimpleQuery
     , testCase "SimpleAndExtendedQuery" testSimpleAndExtendedQuery
+    , testCase "PreparedStatementCache" testPreparedStatementCache
     ]
 
 makeQuery1 :: B.ByteString -> Query
@@ -197,4 +198,25 @@ testSimpleAndExtendedQuery = withConnection $ \c -> do
     assertBool "Should be Right" $ isRight fr
     r <- fromMessage <$> readNextData c
     r @=? d
+
+-- | Test that cache of statements works.
+testPreparedStatementCache :: IO ()
+testPreparedStatementCache  = withConnection $ \c -> do
+    let a = 7
+        b = 2
+    sendBatchAndSync c [ makeQuery1 (BS.pack (show a))
+                        , makeQuery1 (BS.pack (show b))
+                        , makeQuery2 (BS.pack (show a)) (BS.pack (show b))]
+    readReadyForQuery c
+    r1 <- fromMessage <$> readNextData c
+    r2 <- fromMessage <$> readNextData c
+    r3 <- fromMessage <$> readNextData c
+
+    BS.pack (show a) @=? r1
+    BS.pack (show b) @=? r2
+    BS.pack (show $ a + b) @=? r3
+
+    size <- getCacheSize $ connStatementStorage c
+    -- 2 different statements were send
+    2 @=? size
 

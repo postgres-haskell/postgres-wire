@@ -27,11 +27,25 @@ sendBatch :: Connection -> [Query] -> IO ()
 sendBatch conn = traverse_ sendSingle
   where
     s = connRawConnection conn
-    sname = StatementName ""
+    storage = connStatementStorage conn
     pname = PortalName ""
     sendSingle q = do
-        sendMessage s $
-            Parse sname (StatementSQL $ qStatement q) (fst <$> qValues q)
+        let stmtSQL = StatementSQL $ qStatement q
+        sname <- case qCachePolicy q of
+            AlwaysCache -> do
+                mName <- lookupStatement storage stmtSQL
+                case mName of
+                    Nothing -> do
+                        newName <- storeStatement storage stmtSQL
+                        sendMessage s $
+                            Parse newName stmtSQL (fst <$> qValues q)
+                        pure newName
+                    Just name -> pure name
+            NeverCache -> do
+                let newName = defaultStatementName
+                sendMessage s $
+                    Parse  newName stmtSQL (fst <$> qValues q)
+                pure newName
         sendMessage s $
             Bind pname sname (qParamsFormat q) (snd <$> qValues q)
                 (qResultFormat q)
