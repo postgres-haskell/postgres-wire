@@ -12,6 +12,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Database.PostgreSQL.Driver.Connection
+import Database.PostgreSQL.Driver.StatementStorage
 import Database.PostgreSQL.Driver.Query
 import Database.PostgreSQL.Protocol.Types
 
@@ -33,12 +34,12 @@ testDriver = testGroup "Driver"
     ]
 
 makeQuery1 :: B.ByteString -> Query
-makeQuery1 n = Query "SELECT $1" (V.fromList [Oid 23]) (V.fromList [n])
-                    Text Text
+makeQuery1 n = Query "SELECT $1" (V.fromList [(Oid 23, n)])
+                    Text Text AlwaysCache
 
 makeQuery2 :: B.ByteString -> B.ByteString -> Query
-makeQuery2 n1 n2 = Query "SELECT $1 + $2" (V.fromList [Oid 23, Oid 23])
-                    (V.fromList [n1, n2]) Text Text
+makeQuery2 n1 n2 = Query "SELECT $1 + $2"
+    (V.fromList [(Oid 23, n1), (Oid 23, n2)]) Text Text AlwaysCache
 
 fromRight :: Either e a -> a
 fromRight (Right v) = v
@@ -94,12 +95,12 @@ testMultipleBatches = withConnection $ replicateM_ 10 . assertSingleBatch
 -- | Query is empty string.
 testEmptyQuery :: IO ()
 testEmptyQuery = assertQueryNoData $
-    Query "" V.empty V.empty Text Text
+    Query "" V.empty Text Text NeverCache
 
 -- | Query than returns no datarows.
 testQueryWithoutResult :: IO ()
 testQueryWithoutResult = assertQueryNoData $
-    Query "SET client_encoding TO UTF8" V.empty V.empty Text Text
+    Query "SET client_encoding TO UTF8" V.empty Text Text NeverCache
 
 -- | Asserts that query returns no data rows.
 assertQueryNoData :: Query -> IO ()
@@ -127,18 +128,15 @@ checkInvalidResult conn n = readNextData conn >>=
 testInvalidBatch :: IO ()
 testInvalidBatch = do
     let rightQuery = makeQuery1 "5"
-        q1 = Query "SEL $1" (V.fromList [Oid 23]) (V.fromList ["5"]) Text Text
-        q2 = Query "SELECT $1" (V.fromList [Oid 23]) (V.fromList ["a"]) Text Text
-        q3 = Query "SELECT $1" (V.fromList [Oid 23]) (V.fromList []) Text Text
-        q4 = Query "SELECT $1" (V.fromList []) (V.fromList ["5"]) Text Text
+        q1 = Query "SEL $1" (V.fromList [(Oid 23, "5")]) Text Text NeverCache
+        q2 = Query "SELECT $1" (V.fromList [(Oid 23, "a")])  Text Text NeverCache
+        q4 = Query "SELECT $1" (V.fromList [])  Text Text NeverCache
 
     assertInvalidBatch "Parse error" [q1]
     assertInvalidBatch "Invalid param" [ q2]
-    assertInvalidBatch "Missed param" [ q3]
     assertInvalidBatch "Missed oid of param" [ q4]
     assertInvalidBatch "Parse error" [rightQuery, q1]
     assertInvalidBatch "Invalid param" [rightQuery, q2]
-    assertInvalidBatch "Missed param" [rightQuery, q3]
     assertInvalidBatch "Missed oid of param" [rightQuery, q4]
   where
     assertInvalidBatch desc qs = withConnection $ \c -> do

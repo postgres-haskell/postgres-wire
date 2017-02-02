@@ -16,6 +16,7 @@ module Database.PostgreSQL.Driver
     , Query(..)
     , Oid(..)
     , Format(..)
+    , CachePolicy(..)
     , sendBatch
     , sendBatchAndSync
     , sendBatchAndFlush
@@ -34,6 +35,7 @@ module Database.PostgreSQL.Driver
 import Database.PostgreSQL.Protocol.Types
 
 import Database.PostgreSQL.Driver.Connection
+import Database.PostgreSQL.Driver.StatementStorage
 import Database.PostgreSQL.Driver.Settings
 import Database.PostgreSQL.Driver.Query
 import Database.PostgreSQL.Driver.Error

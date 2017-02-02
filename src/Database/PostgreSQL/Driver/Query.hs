@@ -16,10 +16,10 @@ import Database.PostgreSQL.Driver.StatementStorage
 -- Public
 data Query = Query
     { qStatement    :: B.ByteString
-    , qOids         :: V.Vector Oid
-    , qValues       :: V.Vector B.ByteString
+    , qValues       :: V.Vector (Oid, B.ByteString)
     , qParamsFormat :: Format
     , qResultFormat :: Format
+    , qCachePolicy  :: CachePolicy
     } deriving (Show)
 
 -- | Public
@@ -30,9 +30,11 @@ sendBatch conn = traverse_ sendSingle
     sname = StatementName ""
     pname = PortalName ""
     sendSingle q = do
-        sendMessage s $ Parse sname (StatementSQL $ qStatement q) (qOids q)
         sendMessage s $
-            Bind pname sname (qParamsFormat q) (qValues q) (qResultFormat q)
+            Parse sname (StatementSQL $ qStatement q) (fst <$> qValues q)
+        sendMessage s $
+            Bind pname sname (qParamsFormat q) (snd <$> qValues q)
+                (qResultFormat q)
         sendMessage s $ Execute pname noLimitToReceive
 
 -- | Public

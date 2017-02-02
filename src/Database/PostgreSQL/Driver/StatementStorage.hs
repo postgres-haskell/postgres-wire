@@ -12,6 +12,12 @@ import Database.PostgreSQL.Protocol.Types
 data StatementStorage = StatementStorage
     (H.CuckooHashTable StatementSQL StatementName) (IORef Word)
 
+-- | Cache policy about prepared statements.
+data CachePolicy
+    = AlwaysCache
+    | NeverCache
+    deriving (Show)
+
 newStatementStorage :: IO StatementStorage
 newStatementStorage = StatementStorage <$> H.new <*> newIORef 0
 
@@ -25,4 +31,7 @@ storageStatement (StatementStorage table counter) stmt = do
     let name = StatementName . pack $ show n
     H.insert table stmt name
     pure name
+
+getCacheSize :: StatementStorage -> IO Word
+getCacheSize (StatementStorage _ counter) = readIORef counter
 

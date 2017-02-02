@@ -9,6 +9,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Database.PostgreSQL.Driver.Connection
+import Database.PostgreSQL.Driver.StatementStorage
 import Database.PostgreSQL.Driver.Query
 import Database.PostgreSQL.Protocol.Types
 
@@ -87,7 +88,7 @@ testExtendedQuery = withConnectionAll $ \c -> do
 -- string is empty.
 testExtendedEmptyQuery :: IO ()
 testExtendedEmptyQuery = withConnectionAll $ \c -> do
-    let query = Query "" V.empty V.empty Text Text
+    let query = Query "" V.empty Text Text NeverCache
     sendBatchAndSync c [query]
     msgs <- collectBeforeReadyForQuery c
     assertNoErrorResponse msgs
