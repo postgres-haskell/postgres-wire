@@ -6,6 +6,7 @@ import qualified Data.Vector as V
 import Data.Store.Core
 import Data.Int (Int16, Int32)
 import Data.Word (Word8)
+import Data.Char (ord)
 import Foreign
 import Data.Monoid
 import Data.Foldable
@@ -17,6 +18,8 @@ instance Monoid Encode where
     mempty = Encode 0 . Poke $ \_ offset -> pure (offset, ())
     (Encode len1 f1) `mappend` (Encode len2 f2) = Encode (len1 + len2) (f1 *> f2)
 
+getEncodeLen :: Encode -> Int
+getEncodeLen (Encode len _) = len
 
 runEncode :: Encode -> B.ByteString
 runEncode (Encode len f) = unsafeEncodeWith f len
@@ -29,6 +32,9 @@ fixedPrim len f = Encode len . Poke $ \state offset -> do
 
 putWord8 :: Word8 -> Encode
 putWord8 w = fixedPrim 1 $ \p -> poke p w
+
+putChar8 :: Char -> Encode
+putChar8 = putWord8 . fromIntegral . ord
 
 putWord16BE :: Word16 -> Encode
 putWord16BE w = fixedPrim 2 $ \p -> do
