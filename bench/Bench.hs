@@ -7,6 +7,7 @@ import Data.Vector as V(fromList, empty)
 
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.Encoders
+import Database.PostgreSQL.Protocol.Store
 import Criterion.Main
 
 main = defaultMain
@@ -27,7 +28,7 @@ main = defaultMain
 benchMessage :: String -> ClientMessage -> Benchmark
 benchMessage name = bench name . nf encodeMessage
   where
-    encodeMessage = toStrict . toLazyByteString . encodeClientMessage
+    encodeMessage = runEncode . encodeClientMessage
 
 parseMessage :: Int -> ClientMessage
 parseMessage n = Parse (StatementName "53") (StatementSQL
