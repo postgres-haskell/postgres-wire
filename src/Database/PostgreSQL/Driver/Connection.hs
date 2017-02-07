@@ -23,6 +23,7 @@ import Database.PostgreSQL.Protocol.Encoders
 import Database.PostgreSQL.Protocol.Decoders
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.Store.Encode (runEncode)
+import Database.PostgreSQL.Protocol.Store.Decode (runDecode)
 
 import Database.PostgreSQL.Driver.Settings
 import Database.PostgreSQL.Driver.StatementStorage
@@ -125,8 +126,8 @@ authorize rawConn settings = do
         -- 4096 should be enough for the whole response from a server at
         -- the startup phase.
         r <- rReceive rawConn 4096
-        case pushChunk (runGetIncremental decodeAuthResponse) r of
-            BG.Done rest _ r -> case r of
+        case runDecode decodeAuthResponse r of
+            Right (rest, r) -> case r of
                 AuthenticationOk ->
                     pure $ parseParameters rest
                 AuthenticationCleartextPassword ->
@@ -141,10 +142,7 @@ authorize rawConn settings = do
                     throwAuthErrorInIO $ AuthNotSupported "GSS"
                 AuthErrorResponse desc    ->
                     throwErrorInIO $ PostgresError desc
-            -- this case is near impossible and ignored
-            BG.Partial _ -> throwErrorInIO $
-                                DecodeError "partial auth response"
-            BG.Fail _ _ reason -> throwErrorInIO . DecodeError $ BS.pack reason
+            Left reason -> throwErrorInIO . DecodeError $ BS.pack reason
 
     performPasswordAuth password = do
         sendMessage rawConn $ PasswordMessage password
@@ -174,16 +172,13 @@ parseParameters str = do
         . HM.lookup key
     parseBool bs | bs == "on" || bs == "yes" || bs == "1" = True
                  | otherwise                              = False
-    decoder = runGetIncremental decodeServerMessage
     go str dict | B.null str = Right dict
-                | otherwise = case pushChunk decoder str of
-        BG.Done rest _ v -> case v of
+                | otherwise = case runDecode decodeServerMessage str of
+        Right (rest, v) -> case v of
             ParameterStatus name value -> go rest $ HM.insert name value dict
             -- messages like `BackendData` not handled
             _                          -> go rest dict
-        -- this case is near impossible and ignored
-        BG.Partial _ -> Left $ DecodeError "partial auth response"
-        BG.Fail _ _ reason -> Left . DecodeError $ BS.pack reason
+        Left reason -> Left . DecodeError $ BS.pack reason
 
 parseServerVersion :: B.ByteString -> Either Error ServerVersion
 parseServerVersion bs =
@@ -222,19 +217,16 @@ receiverThread msgFilter rawConn dataChan allChan modeRef = receiveLoop []
         -- print r
         go r acc >>= receiveLoop
 
-    decoder = runGetIncremental decodeServerMessage
     go :: B.ByteString -> [V.Vector (Maybe B.ByteString)] -> IO [V.Vector (Maybe B.ByteString)]
-    go str acc = case pushChunk decoder str of
-        BG.Done rest _ v -> do
+    go str acc = case runDecode decodeServerMessage str of
+        Right (rest, v) -> do
             when (msgFilter v) $ writeChan allChan v
             mode <- readIORef modeRef
             newAcc <- dispatch mode dataChan v acc
             if B.null rest
                 then pure newAcc
                 else go rest newAcc
-        -- TODO right parsing
-        BG.Partial _ -> error "Partial"
-        BG.Fail _ _ reason -> error reason
+        Left reason -> error reason
 
 dispatch :: ConnectionMode -> Dispatcher
 dispatch SimpleQueryMode   = dispatchSimple

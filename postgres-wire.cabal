@@ -27,6 +27,7 @@ library
                      , Database.PostgreSQL.Protocol.Encoders
                      , Database.PostgreSQL.Protocol.Decoders
                      , Database.PostgreSQL.Protocol.Store.Encode
+                     , Database.PostgreSQL.Protocol.Store.Decode
   build-depends:       base >= 4.7 && < 5
                      , bytestring
                      , socket

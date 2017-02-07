@@ -14,19 +14,19 @@ import qualified Data.ByteString as B
 import           Data.ByteString.Char8 (readInteger, readInt)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as HM
-import Data.Binary.Get
 
 import Database.PostgreSQL.Protocol.Types
+import Database.PostgreSQL.Protocol.Store.Decode
 
-decodeAuthResponse :: Get AuthResponse
+decodeAuthResponse :: Decode AuthResponse
 decodeAuthResponse = do
     c <- getWord8
-    len <- getInt32be
+    len <- getInt32BE
     case chr $ fromIntegral c of
         'E' -> AuthErrorResponse <$>
             (getByteString (fromIntegral $ len - 4) >>= decodeErrorDesc)
         'R' -> do
-            rType <- getInt32be
+            rType <- getInt32BE
             case rType of
                 0 -> pure AuthenticationOk
                 3 -> pure AuthenticationCleartextPassword
@@ -38,19 +38,19 @@ decodeAuthResponse = do
                 _ -> fail "Unknown authentication response"
         _ -> fail "Invalid auth response"
 
-decodeServerMessage :: Get ServerMessage
+decodeServerMessage :: Decode ServerMessage
 decodeServerMessage = do
     c <- getWord8
-    len <- getInt32be
+    len <- getInt32BE
     case chr $ fromIntegral c of
-        'K' -> BackendKeyData <$> (ServerProcessId <$> getInt32be)
-                              <*> (ServerSecretKey <$> getInt32be)
+        'K' -> BackendKeyData <$> (ServerProcessId <$> getInt32BE)
+                              <*> (ServerSecretKey <$> getInt32BE)
         '2' -> pure BindComplete
         '3' -> pure CloseComplete
         'C' -> CommandComplete <$> (getByteString (fromIntegral $ len - 4)
                                     >>= decodeCommandResult)
         'D' -> do
-            columnCount <- fromIntegral <$> getInt16be
+            columnCount <- fromIntegral <$> getInt16BE
             DataRow <$> V.replicateM columnCount decodeValue
         'I' -> pure EmptyQueryResponse
         'E' -> ErrorResponse <$>
@@ -60,24 +60,26 @@ decodeServerMessage = do
             (getByteString (fromIntegral $ len - 4) >>= decodeNoticeDesc)
         'A' -> NotificationResponse <$> decodeNotification
         't' -> do
-            paramCount <- fromIntegral <$> getInt16be
+            paramCount <- fromIntegral <$> getInt16BE
             ParameterDescription <$> V.replicateM paramCount
-                                     (Oid <$> getInt32be)
-        'S' -> ParameterStatus <$> decodePgString <*> decodePgString
+                                     (Oid <$> getInt32BE)
+        'S' -> ParameterStatus <$> getByteStringNull <*> getByteStringNull
         '1' -> pure ParseComplete
         's' -> pure PortalSuspended
         'Z' -> ReadForQuery <$> decodeTransactionStatus
         'T' -> do
-            rowsCount <- fromIntegral <$> getInt16be
+            rowsCount <- fromIntegral <$> getInt16BE
             RowDescription <$> V.replicateM rowsCount decodeFieldDescription
 
 -- | Decodes a single data value. Length `-1` indicates a NULL column value.
 -- No value bytes follow in the NULL case.
-decodeValue :: Get (Maybe B.ByteString)
-decodeValue = fromIntegral <$> getInt32be >>= \n ->
-    if n == -1 then pure Nothing else Just <$> getByteString n
+decodeValue :: Decode (Maybe B.ByteString)
+decodeValue = fromIntegral <$> getInt32BE >>= \n ->
+    if n == -1
+    then pure Nothing
+    else Just <$> getByteString n
 
-decodeTransactionStatus :: Get TransactionStatus
+decodeTransactionStatus :: Decode TransactionStatus
 decodeTransactionStatus =  getWord8 >>= \t ->
     case chr $ fromIntegral t of
         'I' -> pure TransactionIdle
@@ -85,30 +87,30 @@ decodeTransactionStatus =  getWord8 >>= \t ->
         'E' -> pure TransactionFailed
         _   -> fail "unknown transaction status"
 
-decodeFieldDescription :: Get FieldDescription
+decodeFieldDescription :: Decode FieldDescription
 decodeFieldDescription = FieldDescription
-    <$> decodePgString
-    <*> (Oid <$> getInt32be)
-    <*> getInt16be
-    <*> (Oid <$> getInt32be)
-    <*> getInt16be
-    <*> getInt32be
+    <$> getByteStringNull
+    <*> (Oid <$> getInt32BE)
+    <*> getInt16BE
+    <*> (Oid <$> getInt32BE)
+    <*> getInt16BE
+    <*> getInt32BE
     <*> decodeFormat
 
-decodeNotification :: Get Notification
+decodeNotification :: Decode Notification
 decodeNotification = Notification
-    <$> (ServerProcessId <$> getInt32be)
-    <*> (ChannelName <$> decodePgString)
-    <*> decodePgString
+    <$> (ServerProcessId <$> getInt32BE)
+    <*> (ChannelName <$> getByteStringNull)
+    <*> getByteStringNull
 
-decodeFormat :: Get Format
-decodeFormat = getInt16be >>= \f ->
+decodeFormat :: Decode Format
+decodeFormat = getInt16BE >>= \f ->
     case f of
         0 -> pure Text
         1 -> pure Binary
         _ -> fail "Unknown field format"
 
-decodeCommandResult :: B.ByteString -> Get CommandResult
+decodeCommandResult :: B.ByteString -> Decode CommandResult
 decodeCommandResult s =
     let (command, rest) = B.break (== space) s
     in case command of
@@ -151,7 +153,7 @@ decodeNoticeSeverity "INFO"    = SeverityInfo
 decodeNoticeSeverity "LOG"     = SeverityLog
 decodeNoticeSeverity _         = UnknownNoticeSeverity
 
-decodeErrorDesc :: B.ByteString -> Get ErrorDesc
+decodeErrorDesc :: B.ByteString -> Decode ErrorDesc
 decodeErrorDesc s = do
     let hm = decodeErrorNoticeFields s
     errorSeverityOld <- lookupKey 'S' hm
@@ -184,7 +186,7 @@ decodeErrorDesc s = do
                          "is not presented in ErrorResponse message")
                          pure . HM.lookup c
 
-decodeNoticeDesc :: B.ByteString -> Get NoticeDesc
+decodeNoticeDesc :: B.ByteString -> Decode NoticeDesc
 decodeNoticeDesc s = do
     let hm = decodeErrorNoticeFields s
     noticeSeverityOld <- lookupKey 'S' hm
@@ -216,11 +218,4 @@ decodeNoticeDesc s = do
     lookupKey c = maybe (fail $ "Neccessary key " ++ show c ++
                          "is not presented in NoticeResponse message")
                          pure . HM.lookup c
-
-------
--- Utils
-------
-
-decodePgString :: Get B.ByteString
-decodePgString = BL.toStrict <$> getLazyByteStringNul
 
