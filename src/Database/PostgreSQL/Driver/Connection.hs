@@ -22,7 +22,7 @@ import Crypto.Hash (hash, Digest, MD5)
 import Database.PostgreSQL.Protocol.Encoders
 import Database.PostgreSQL.Protocol.Decoders
 import Database.PostgreSQL.Protocol.Types
-import Database.PostgreSQL.Protocol.Store (runEncode)
+import Database.PostgreSQL.Protocol.Store.Encode (runEncode)
 
 import Database.PostgreSQL.Driver.Settings
 import Database.PostgreSQL.Driver.StatementStorage

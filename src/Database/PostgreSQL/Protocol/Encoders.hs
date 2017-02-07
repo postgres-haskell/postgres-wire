@@ -8,7 +8,7 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as B
 
 import Database.PostgreSQL.Protocol.Types
-import Database.PostgreSQL.Protocol.Store
+import Database.PostgreSQL.Protocol.Store.Encode
 
 -- | Protocol Version 3.0, major version in the first word16.
 currentVersion :: Int32

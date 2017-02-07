@@ -1,15 +1,16 @@
-module Database.PostgreSQL.Protocol.Store where
+module Database.PostgreSQL.Protocol.Store.Encode where
 
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Internal as B(toForeignPtr)
-import qualified Data.Vector as V
-import Data.Store.Core
+import Data.Monoid (Monoid(..), (<>))
+import Foreign (poke, plusPtr, Ptr)
 import Data.Int (Int16, Int32)
-import Data.Word (Word8)
+import Data.Word (Word8, Word16, Word32)
 import Data.Char (ord)
-import Foreign
-import Data.Monoid
-import Data.Foldable
+import Data.Bits (shiftR)
+
+import Data.ByteString (ByteString)
+import Data.ByteString.Internal as B(toForeignPtr)
+import Data.Store.Core (Poke(..), unsafeEncodeWith, pokeStatePtr,
+                        pokeFromForeignPtr)
 
 data Encode = Encode {-# UNPACK #-} !Int !(Poke ())
 
@@ -24,7 +25,7 @@ getEncodeLen :: Encode -> Int
 getEncodeLen (Encode len _) = len
 {-# INLINE getEncodeLen #-}
 
-runEncode :: Encode -> B.ByteString
+runEncode :: Encode -> ByteString
 runEncode (Encode len f) = unsafeEncodeWith f len
 {-# INLINE runEncode #-}
 
@@ -65,14 +66,14 @@ putInt16BE :: Int16 -> Encode
 putInt16BE = putWord16BE . fromIntegral
 {-# INLINE putInt16BE #-}
 
-putByteString :: B.ByteString -> Encode
+putByteString :: ByteString -> Encode
 putByteString bs =
-    let (ptr, offset, len) = B.toForeignPtr bs
+    let (ptr, offset, len) = toForeignPtr bs
     in Encode len $ pokeFromForeignPtr ptr offset len
 {-# INLINE putByteString #-}
 
 -- | C-like string
-putPgString :: B.ByteString -> Encode
+putPgString :: ByteString -> Encode
 putPgString bs = putByteString bs <> putWord8 0
 {-# INLINE putPgString #-}
 
