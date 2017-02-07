@@ -105,25 +105,25 @@ data AuthResponse
     deriving (Show)
 
 data ClientMessage
-    = Bind PortalName StatementName
-        Format                  -- parameter format code, one format for all
-        (Vector ByteString)     -- the values of parameters, the empty string
+    = Bind !PortalName !StatementName
+        !Format                  -- parameter format code, one format for all
+        !(Vector ByteString)     -- the values of parameters, the empty string
                                 -- is recognized as NULL
-        Format                  -- to apply code to all result columns
+        !Format                  -- to apply code to all result columns
     -- Postgres use one command `close` for closing both statements and
     -- portals, but we distinguish them
-    | CloseStatement StatementName
-    | ClosePortal PortalName
+    | CloseStatement !StatementName
+    | ClosePortal !PortalName
     -- Postgres use one command `describe` for describing both statements
     -- and portals, but we distinguish them
-    | DescribeStatement StatementName
-    | DescribePortal PortalName
-    | Execute PortalName RowsToReceive
+    | DescribeStatement !StatementName
+    | DescribePortal !PortalName
+    | Execute !PortalName !RowsToReceive
     | Flush
-    | Parse StatementName StatementSQL (Vector Oid)
-    | PasswordMessage PasswordText
+    | Parse !StatementName !StatementSQL !(Vector Oid)
+    | PasswordMessage !PasswordText
     -- PostgreSQL names it `Query`
-    | SimpleQuery StatementSQL
+    | SimpleQuery !StatementSQL
     | Sync
     | Terminate
     deriving (Show)

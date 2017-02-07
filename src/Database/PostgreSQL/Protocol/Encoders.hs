@@ -35,7 +35,7 @@ encodeClientMessage (Bind (PortalName portalName) (StatementName stmtName)
         putInt16BE 1 <>
         encodeFormat paramFormat <>
         putInt16BE (fromIntegral $ V.length values) <>
-        fold (encodeValue <$> values) <>
+        foldMap encodeValue values <>
         -- `1` means that the specified format code is applied to all
         -- result columns (if any)
         putInt16BE 1 <>
@@ -59,7 +59,7 @@ encodeClientMessage (Parse (StatementName stmtName) (StatementSQL stmt) oids)
         putPgString stmtName <>
         putPgString stmt <>
         putInt16BE (fromIntegral $ V.length oids) <>
-        fold (putInt32BE . unOid <$> oids)
+        foldMap (putInt32BE . unOid) oids
 encodeClientMessage (PasswordMessage passtext)
     = prependHeader 'p' $ putPgString $ getPassword passtext
       where
