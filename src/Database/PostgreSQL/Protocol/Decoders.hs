@@ -73,9 +73,9 @@ decodeServerMessage = do
 
 -- | Decodes a single data value. Length `-1` indicates a NULL column value.
 -- No value bytes follow in the NULL case.
-decodeValue :: Get B.ByteString
+decodeValue :: Get (Maybe B.ByteString)
 decodeValue = fromIntegral <$> getInt32be >>= \n ->
-    if n == -1 then pure "" else getByteString n
+    if n == -1 then pure Nothing else Just <$> getByteString n
 
 decodeTransactionStatus :: Get TransactionStatus
 decodeTransactionStatus =  getWord8 >>= \t ->

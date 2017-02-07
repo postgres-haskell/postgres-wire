@@ -3,6 +3,7 @@ module Driver where
 import Data.Monoid ((<>))
 import Data.Foldable
 import Control.Monad
+import Data.Maybe
 import Data.Either
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BS
@@ -35,19 +36,19 @@ testDriver = testGroup "Driver"
     ]
 
 makeQuery1 :: B.ByteString -> Query
-makeQuery1 n = Query "SELECT $1" (V.fromList [(Oid 23, n)])
+makeQuery1 n = Query "SELECT $1" (V.fromList [(Oid 23, Just n)])
                     Text Text AlwaysCache
 
 makeQuery2 :: B.ByteString -> B.ByteString -> Query
 makeQuery2 n1 n2 = Query "SELECT $1 + $2"
-    (V.fromList [(Oid 23, n1), (Oid 23, n2)]) Text Text AlwaysCache
+    (V.fromList [(Oid 23, Just n1), (Oid 23, Just n2)]) Text Text AlwaysCache
 
 fromRight :: Either e a -> a
 fromRight (Right v) = v
 fromRight _         = error "fromRight"
 
 fromMessage :: Either e DataMessage -> B.ByteString
-fromMessage (Right (DataMessage [v])) = V.head v
+fromMessage (Right (DataMessage [v])) = fromJust $ V.head v
 fromMessage _                     = error "from message"
 
 -- | Single batch.
@@ -129,8 +130,8 @@ checkInvalidResult conn n = readNextData conn >>=
 testInvalidBatch :: IO ()
 testInvalidBatch = do
     let rightQuery = makeQuery1 "5"
-        q1 = Query "SEL $1" (V.fromList [(Oid 23, "5")]) Text Text NeverCache
-        q2 = Query "SELECT $1" (V.fromList [(Oid 23, "a")])  Text Text NeverCache
+        q1 = Query "SEL $1" (V.fromList [(Oid 23, Just "5")]) Text Text NeverCache
+        q2 = Query "SELECT $1" (V.fromList [(Oid 23, Just "a")])  Text Text NeverCache
         q4 = Query "SELECT $1" (V.fromList [])  Text Text NeverCache
 
     assertInvalidBatch "Parse error" [q1]

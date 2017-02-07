@@ -74,9 +74,9 @@ encodeClientMessage Terminate
 
 -- Encodes single data values. Length `-1` indicates a NULL parameter value.
 -- No value bytes follow in the NULL case.
-encodeValue :: B.ByteString -> Encode
-encodeValue v | B.null v = putInt32BE (-1)
-              | otherwise = putInt32BE (fromIntegral $ B.length v)
+encodeValue :: Maybe B.ByteString -> Encode
+encodeValue Nothing  = putInt32BE (-1)
+encodeValue (Just v) = putInt32BE (fromIntegral $ B.length v)
                             <> putByteString v
 
 encodeFormat :: Format -> Encode

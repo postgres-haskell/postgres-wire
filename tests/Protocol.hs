@@ -50,7 +50,7 @@ testExtendedQuery = withConnectionAll $ \c -> do
         statement = StatementSQL "SELECT $1 + $2"
     sendMessage rawConn $ Parse sname statement (V.fromList [Oid 23, Oid 23])
     sendMessage rawConn $
-        Bind pname sname Text (V.fromList ["1", "2"]) Text
+        Bind pname sname Text (V.fromList [Just "1", Just "2"]) Text
     sendMessage rawConn $ Execute pname noLimitToReceive
     sendMessage rawConn $ DescribeStatement sname
     sendMessage rawConn $ DescribePortal pname

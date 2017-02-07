@@ -44,9 +44,10 @@ type NotificationHandler = Notification -> IO ()
 type Dispatcher
     =  InChan (Either Error DataMessage)
     -> ServerMessage
-    -> [V.Vector B.ByteString]
-    -> IO [V.Vector B.ByteString]
-data DataMessage = DataMessage [V.Vector B.ByteString]
+    -> [V.Vector (Maybe B.ByteString)]
+    -> IO [V.Vector (Maybe B.ByteString)]
+
+data DataMessage = DataMessage [V.Vector (Maybe B.ByteString)]
     deriving (Show, Eq)
 
 -- | Parameters of the current connection.
@@ -215,14 +216,14 @@ receiverThread
     -> IO ()
 receiverThread msgFilter rawConn dataChan allChan modeRef = receiveLoop []
   where
-    receiveLoop :: [V.Vector B.ByteString] -> IO ()
+    receiveLoop :: [V.Vector (Maybe B.ByteString)] -> IO ()
     receiveLoop acc = do
         r <- rReceive rawConn 4096
         -- print r
         go r acc >>= receiveLoop
 
     decoder = runGetIncremental decodeServerMessage
-    go :: B.ByteString -> [V.Vector B.ByteString] -> IO [V.Vector B.ByteString]
+    go :: B.ByteString -> [V.Vector (Maybe B.ByteString)] -> IO [V.Vector (Maybe B.ByteString)]
     go str acc = case pushChunk decoder str of
         BG.Done rest _ v -> do
             when (msgFilter v) $ writeChan allChan v

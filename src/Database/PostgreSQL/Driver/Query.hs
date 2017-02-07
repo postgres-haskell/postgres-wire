@@ -16,7 +16,7 @@ import Database.PostgreSQL.Driver.StatementStorage
 -- Public
 data Query = Query
     { qStatement    :: B.ByteString
-    , qValues       :: V.Vector (Oid, B.ByteString)
+    , qValues       :: V.Vector (Oid, Maybe B.ByteString)
     , qParamsFormat :: Format
     , qResultFormat :: Format
     , qCachePolicy  :: CachePolicy

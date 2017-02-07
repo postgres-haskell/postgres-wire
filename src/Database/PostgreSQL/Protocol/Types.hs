@@ -65,12 +65,7 @@ data CommandResult
 --   9.6.0        ServerVersion 9 6 0 ""
 --   10.1beta2  - ServerVersion 10 1 0 "beta2"
 data ServerVersion = ServerVersion Word8 Word8 Word8 ByteString
-    deriving (Eq)
-
-instance Show ServerVersion where
-    show (ServerVersion major minor revision desc) =
-        "v" ++ show major ++ "." ++ show minor ++ "." ++ show revision
-        ++ if B.null desc then "" else show desc
+    deriving (Eq, Show)
 
 data TransactionStatus
     -- | not in a transaction block
@@ -106,9 +101,9 @@ data AuthResponse
 
 data ClientMessage
     = Bind !PortalName !StatementName
-        !Format                  -- parameter format code, one format for all
-        !(Vector ByteString)     -- the values of parameters, the empty string
-                                -- is recognized as NULL
+        !Format                      -- parameter format code, one format for all
+        !(Vector (Maybe ByteString)) -- the values of parameters, Nothing
+                                     -- is recognized as NULL
         !Format                  -- to apply code to all result columns
     -- Postgres use one command `close` for closing both statements and
     -- portals, but we distinguish them
@@ -136,8 +131,7 @@ data ServerMessage
     | BindComplete
     | CloseComplete
     | CommandComplete CommandResult
-    | DataRow (Vector ByteString)  -- an empty string should be recognized
-                                   -- as NULL
+    | DataRow (Vector (Maybe ByteString))  -- Nothing shoulde be recognized as NULL
     | EmptyQueryResponse
     | ErrorResponse ErrorDesc
     | NoData
