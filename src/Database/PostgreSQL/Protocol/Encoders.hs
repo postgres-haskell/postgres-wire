@@ -1,9 +1,10 @@
-module Database.PostgreSQL.Protocol.Encoders where
+module Database.PostgreSQL.Protocol.Encoders
+    ( encodeStartMessage
+    , encodeClientMessage
+    ) where
 
-import Data.Word
-import Data.Int
-import Data.Monoid
-import Data.Foldable
+import           Data.Int (Int32)
+import           Data.Monoid ((<>))
 import qualified Data.Vector as V
 import qualified Data.ByteString as B
 
@@ -72,7 +73,7 @@ encodeClientMessage Sync
 encodeClientMessage Terminate
     = prependHeader 'X' mempty
 
--- Encodes single data values. Length `-1` indicates a NULL parameter value.
+-- | Encodes single data values. Length `-1` indicates a NULL parameter value.
 -- No value bytes follow in the NULL case.
 encodeValue :: Maybe B.ByteString -> Encode
 encodeValue Nothing  = putInt32BE (-1)
@@ -82,10 +83,6 @@ encodeValue (Just v) = putInt32BE (fromIntegral $ B.length v)
 encodeFormat :: Format -> Encode
 encodeFormat Text   = putInt16BE 0
 encodeFormat Binary = putInt16BE 1
-
-----------
--- Utils
----------
 
 prependHeader :: Char -> Encode -> Encode
 prependHeader c payload =
