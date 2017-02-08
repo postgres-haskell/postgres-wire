@@ -9,9 +9,10 @@ import Data.Foldable
 import Data.Char (chr)
 import Control.Applicative
 import Control.Monad
+import Text.Read
 import qualified Data.Vector as V
 import qualified Data.ByteString as B
-import           Data.ByteString.Char8 (readInteger, readInt)
+import           Data.ByteString.Char8 as BS(readInteger, readInt, unpack)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as HM
 
@@ -133,6 +134,23 @@ decodeCommandResult s =
     readRows = maybe (fail "Invalid rows format in command result")
                        (pure . RowsCount . fromInteger . fst)
                        . readInteger . B.dropWhile (== space)
+
+parseServerVersion :: B.ByteString -> Maybe ServerVersion
+parseServerVersion bs =
+    let (numbersStr, desc) = B.span isDigitDot bs
+        numbers = readMaybe . BS.unpack <$> B.split 46 numbersStr
+    in case numbers ++ repeat (Just 0) of
+        (Just major : Just minor : Just rev : _) ->
+            Just $ ServerVersion major minor rev desc
+        _ -> Nothing
+  where
+    isDigitDot c | c == 46           = True -- dot
+                 | c >= 48 && c < 58 = True -- digits
+                 | otherwise         = False
+
+parseIntegerDatetimes :: B.ByteString -> Bool
+parseIntegerDatetimes  bs | bs == "on" || bs == "yes" || bs == "1" = True
+                          | otherwise                              = False
 
 decodeErrorNoticeFields :: B.ByteString -> HM.HashMap Char B.ByteString
 decodeErrorNoticeFields = HM.fromList

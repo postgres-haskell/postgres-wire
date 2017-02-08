@@ -204,20 +204,20 @@ data ErrorDesc = ErrorDesc
     { errorSeverity         :: !ErrorSeverity
     , errorCode             :: !ByteString
     , errorMessage          :: !ByteString
-    , errorDetail           :: !Maybe ByteString
-    , errorHint             :: !Maybe ByteString
-    , errorPosition         :: !Maybe Int
-    , errorInternalPosition :: !Maybe Int
-    , errorInternalQuery    :: !Maybe ByteString
-    , errorContext          :: !Maybe ByteString
-    , errorSchema           :: !Maybe ByteString
-    , errorTable            :: !Maybe ByteString
-    , errorColumn           :: !Maybe ByteString
-    , errorDataType         :: !Maybe ByteString
-    , errorConstraint       :: !Maybe ByteString
-    , errorSourceFilename   :: !Maybe ByteString
-    , errorSourceLine       :: !Maybe Int
-    , errorSourceRoutine    :: !Maybe ByteString
+    , errorDetail           :: !(Maybe ByteString)
+    , errorHint             :: !(Maybe ByteString)
+    , errorPosition         :: !(Maybe Int)
+    , errorInternalPosition :: !(Maybe Int)
+    , errorInternalQuery    :: !(Maybe ByteString)
+    , errorContext          :: !(Maybe ByteString)
+    , errorSchema           :: !(Maybe ByteString)
+    , errorTable            :: !(Maybe ByteString)
+    , errorColumn           :: !(Maybe ByteString)
+    , errorDataType         :: !(Maybe ByteString)
+    , errorConstraint       :: !(Maybe ByteString)
+    , errorSourceFilename   :: !(Maybe ByteString)
+    , errorSourceLine       :: !(Maybe Int)
+    , errorSourceRoutine    :: !(Maybe ByteString)
     } deriving (Show)
 
 -- | Information about NoticeResponse.
@@ -225,19 +225,19 @@ data NoticeDesc = NoticeDesc
     { noticeSeverity         :: !NoticeSeverity
     , noticeCode             :: !ByteString
     , noticeMessage          :: !ByteString
-    , noticeDetail           :: !Maybe ByteString
-    , noticeHint             :: !Maybe ByteString
-    , noticePosition         :: !Maybe Int
-    , noticeInternalPosition :: !Maybe Int
-    , noticeInternalQuery    :: !Maybe ByteString
-    , noticeContext          :: !Maybe ByteString
-    , noticeSchema           :: !Maybe ByteString
-    , noticeTable            :: !Maybe ByteString
-    , noticeColumn           :: !Maybe ByteString
-    , noticeDataType         :: !Maybe ByteString
-    , noticeConstraint       :: !Maybe ByteString
-    , noticeSourceFilename   :: !Maybe ByteString
-    , noticeSourceLine       :: !Maybe Int
-    , noticeSourceRoutine    :: !Maybe ByteString
+    , noticeDetail           :: !(Maybe ByteString)
+    , noticeHint             :: !(Maybe ByteString)
+    , noticePosition         :: !(Maybe Int)
+    , noticeInternalPosition :: !(Maybe Int)
+    , noticeInternalQuery    :: !(Maybe ByteString)
+    , noticeContext          :: !(Maybe ByteString)
+    , noticeSchema           :: !(Maybe ByteString)
+    , noticeTable            :: !(Maybe ByteString)
+    , noticeColumn           :: !(Maybe ByteString)
+    , noticeDataType         :: !(Maybe ByteString)
+    , noticeConstraint       :: !(Maybe ByteString)
+    , noticeSourceFilename   :: !(Maybe ByteString)
+    , noticeSourceLine       :: !(Maybe Int)
+    , noticeSourceRoutine    :: !(Maybe ByteString)
     } deriving (Show)
 

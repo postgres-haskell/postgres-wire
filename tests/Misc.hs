@@ -5,8 +5,8 @@ import Data.Foldable
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Database.PostgreSQL.Driver.Connection
 import Database.PostgreSQL.Protocol.Types
+import Database.PostgreSQL.Protocol.Decoders
 
 
 testMisc :: TestTree
@@ -24,6 +24,6 @@ testParseServerVersion = traverse_ testSingle
     ]
   where
     testSingle (str, result) = case parseServerVersion str of
-        Left e -> assertFailure $ "Should be Right, got error " ++ show e
-        Right v -> result @=? v
+        Nothing -> assertFailure "Should be Right, got error "
+        Just v -> result @=? v
 

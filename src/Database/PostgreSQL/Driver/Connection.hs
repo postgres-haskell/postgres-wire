@@ -10,7 +10,6 @@ import Data.Foldable
 import Control.Applicative
 import Data.IORef
 import Data.Monoid
-import Text.Read
 import Control.Concurrent (forkIO, killThread, ThreadId, threadDelay)
 import Data.Binary.Get ( runGetIncremental, pushChunk)
 import qualified Data.Binary.Get as BG (Decoder(..))
@@ -42,6 +41,9 @@ defaultConnectionMode = ExtendedQueryMode
 type ServerMessageFilter = ServerMessage -> Bool
 type NotificationHandler = Notification -> IO ()
 
+defaultNotificationHandler :: NotificationHandler
+defaultNotificationHandler = const $ pure ()
+
 type Dispatcher
     =  InChan (Either Error DataMessage)
     -> ServerMessage
@@ -53,24 +55,28 @@ data DataMessage = DataMessage [V.Vector (Maybe B.ByteString)]
 
 -- | Parameters of the current connection.
 -- We store only the parameters that cannot change after startup.
--- For more information about additional parameters see PostgreSQL documentation.
+-- For more information about additional parameters see
+-- PostgreSQL documentation.
 data ConnectionParameters = ConnectionParameters
     { paramServerVersion    :: ServerVersion
-    , paramServerEncoding   :: B.ByteString   -- ^ character set name
-    , paramIntegerDatetimes :: Bool         -- ^ True if integer datetimes used
+    -- | character set name
+    , paramServerEncoding   :: B.ByteString
+    -- | True if integer datetimes used
+    , paramIntegerDatetimes :: Bool
     } deriving (Show)
 
 -- | Public
 data Connection = Connection
-    { connRawConnection      :: RawConnection
-    , connReceiverThread     :: ThreadId
+    { connRawConnection         :: RawConnection
+    , connReceiverThread        :: ThreadId
     -- channel only for Data messages
-    , connOutDataChan        :: OutChan (Either Error DataMessage)
+    , connOutDataChan           :: OutChan (Either Error DataMessage)
     -- channel for all the others messages
-    , connOutAllChan         :: OutChan ServerMessage
-    , connStatementStorage   :: StatementStorage
-    , connParameters         :: ConnectionParameters
-    , connMode               :: IORef ConnectionMode
+    , connOutAllChan            :: OutChan ServerMessage
+    , connStatementStorage      :: StatementStorage
+    , connParameters            :: ConnectionParameters
+    , connMode                  :: IORef ConnectionMode
+    , connNotificationHandler   :: NotificationHandler
     }
 
 -- | Public
@@ -109,6 +115,7 @@ buildConnection rawConn connParams msgFilter = do
         , connStatementStorage = storage
         , connParameters = connParams
         , connMode = modeRef
+        , connNotificationHandler = defaultNotificationHandler
         }
 
 -- | Authorizes on the server and reads connection parameters.
@@ -158,9 +165,11 @@ authorize rawConn settings = do
 parseParameters :: B.ByteString -> Either Error ConnectionParameters
 parseParameters str = do
     dict <- go str HM.empty
-    serverVersion    <- parseServerVersion =<< lookupKey "server_version" dict
+    serverVersion    <- maybe (Left $ DecodeError "server version") Right .
+                        parseServerVersion =<< lookupKey "server_version" dict
     serverEncoding   <- lookupKey "server_encoding" dict
-    integerDatetimes <- parseBool <$> lookupKey "integer_datetimes" dict
+    integerDatetimes <- parseIntegerDatetimes <$>
+                            lookupKey "integer_datetimes" dict
     pure ConnectionParameters
         { paramServerVersion    = serverVersion
         , paramIntegerDatetimes = integerDatetimes
@@ -170,8 +179,6 @@ parseParameters str = do
     lookupKey key = maybe
         (Left . DecodeError $ "Missing connection parameter " <> key ) Right
         . HM.lookup key
-    parseBool bs | bs == "on" || bs == "yes" || bs == "1" = True
-                 | otherwise                              = False
     go str dict | B.null str = Right dict
                 | otherwise = case runDecode decodeServerMessage str of
         Right (rest, v) -> case v of
@@ -180,23 +187,11 @@ parseParameters str = do
             _                          -> go rest dict
         Left reason -> Left . DecodeError $ BS.pack reason
 
-parseServerVersion :: B.ByteString -> Either Error ServerVersion
-parseServerVersion bs =
-    let (numbersStr, desc) = B.span isDigitDot bs
-        numbers = readMaybe . BS.unpack <$> B.split 46 numbersStr
-    in case numbers ++ repeat (Just 0) of
-        (Just major : Just minor : Just rev : _) ->
-            Right $ ServerVersion major minor rev desc
-        _ -> Left $ DecodeError "parse server version"
-  where
-    isDigitDot c | c == 46           = True -- dot
-                 | c >= 48 && c < 58 = True -- digits
-                 | otherwise         = False
-
 handshakeTls :: RawConnection ->  IO ()
 handshakeTls _ = pure ()
 
 -- | Public
+-- TODO add termination
 close :: Connection -> IO ()
 close conn = do
     killThread $ connReceiverThread conn
