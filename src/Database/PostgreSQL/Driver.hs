@@ -17,11 +17,8 @@ module Database.PostgreSQL.Driver
     , Oid(..)
     , Format(..)
     , CachePolicy(..)
-    , sendBatch
     , sendBatchAndSync
     , sendBatchAndFlush
-    , sendSync
-    , sendFlush
     , readNextData
     , readReadyForQuery
     , sendSimpleQuery

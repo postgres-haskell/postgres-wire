@@ -21,7 +21,7 @@ import Crypto.Hash (hash, Digest, MD5)
 import Database.PostgreSQL.Protocol.Encoders
 import Database.PostgreSQL.Protocol.Decoders
 import Database.PostgreSQL.Protocol.Types
-import Database.PostgreSQL.Protocol.Store.Encode (runEncode)
+import Database.PostgreSQL.Protocol.Store.Encode (runEncode, Encode)
 import Database.PostgreSQL.Protocol.Store.Decode (runDecode)
 
 import Database.PostgreSQL.Driver.Settings
@@ -303,14 +303,16 @@ defaultFilter msg = case msg of
 -- Low-level sending functions
 
 sendStartMessage :: RawConnection -> StartMessage -> IO ()
-sendStartMessage rawConn msg = void $ do
-    let smsg = runEncode $ encodeStartMessage msg
-    rSend rawConn smsg
+sendStartMessage rawConn msg = void $
+    rSend rawConn . runEncode $ encodeStartMessage msg
 
+-- Only for testings and simple queries
 sendMessage :: RawConnection -> ClientMessage -> IO ()
-sendMessage rawConn msg = void $ do
-    let smsg = runEncode $ encodeClientMessage msg
-    rSend rawConn smsg
+sendMessage rawConn msg = void $
+    rSend rawConn . runEncode $ encodeClientMessage msg
+
+sendEncode :: RawConnection -> Encode -> IO ()
+sendEncode rawConn = void . rSend rawConn . runEncode
 
 withConnectionMode
     :: Connection -> ConnectionMode -> (Connection -> IO a) -> IO a

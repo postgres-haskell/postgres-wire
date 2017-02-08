@@ -2,10 +2,12 @@ module Database.PostgreSQL.Driver.Query where
 
 import Control.Concurrent.Chan.Unagi
 import Data.Foldable
+import Data.Monoid
 import qualified Data.Vector as V
 import qualified Data.ByteString as B
 
 import Database.PostgreSQL.Protocol.Encoders
+import Database.PostgreSQL.Protocol.Store.Encode
 import Database.PostgreSQL.Protocol.Decoders
 import Database.PostgreSQL.Protocol.Types
 
@@ -23,47 +25,45 @@ data Query = Query
     } deriving (Show)
 
 -- | Public
-sendBatch :: Connection -> [Query] -> IO ()
-sendBatch conn = traverse_ sendSingle
+sendBatchAndSync :: Connection -> [Query] -> IO ()
+sendBatchAndSync = sendBatchEndBy Sync
+
+-- | Public
+sendBatchAndFlush :: Connection -> [Query] -> IO ()
+sendBatchAndFlush = sendBatchEndBy Flush
+
+-- Helper
+sendBatchEndBy :: ClientMessage -> Connection -> [Query] -> IO ()
+sendBatchEndBy msg conn qs = do
+    batch <- constructBatch conn qs
+    sendEncode (connRawConnection conn) $ batch <> encodeClientMessage msg
+
+constructBatch :: Connection -> [Query] -> IO Encode
+constructBatch conn = fmap fold . traverse constructSingle
   where
-    s = connRawConnection conn
     storage = connStatementStorage conn
     pname = PortalName ""
-    sendSingle q = do
+    constructSingle q = do
         let stmtSQL = StatementSQL $ qStatement q
-        sname <- case qCachePolicy q of
+        (sname, parseMessage) <- case qCachePolicy q of
             AlwaysCache -> do
                 mName <- lookupStatement storage stmtSQL
                 case mName of
                     Nothing -> do
                         newName <- storeStatement storage stmtSQL
-                        sendMessage s $
-                            Parse newName stmtSQL (fst <$> qValues q)
-                        pure newName
-                    Just name -> pure name
+                        pure (newName, encodeClientMessage $
+                            Parse newName stmtSQL (fst <$> qValues q))
+                    Just name -> pure (name, mempty)
             NeverCache -> do
                 let newName = defaultStatementName
-                sendMessage s $
-                    Parse  newName stmtSQL (fst <$> qValues q)
-                pure newName
-        sendMessage s $
-            Bind pname sname (qParamsFormat q) (snd <$> qValues q)
-                (qResultFormat q)
-        sendMessage s $ Execute pname noLimitToReceive
-
--- | Public
-sendBatchAndSync :: Connection -> [Query] -> IO ()
-sendBatchAndSync conn qs = sendBatch conn qs >> sendSync conn
-
--- | Public
-sendBatchAndFlush :: Connection -> [Query] -> IO ()
-sendBatchAndFlush conn qs = sendBatch conn qs >> sendFlush conn
-
-sendSync :: Connection -> IO ()
-sendSync conn = sendMessage (connRawConnection conn) Sync
-
-sendFlush :: Connection -> IO ()
-sendFlush conn = sendMessage (connRawConnection conn) Flush
+                pure (newName, encodeClientMessage $
+                    Parse  newName stmtSQL (fst <$> qValues q))
+        let bindMessage = encodeClientMessage $
+                Bind pname sname (qParamsFormat q) (snd <$> qValues q)
+                    (qResultFormat q)
+            executeMessage = encodeClientMessage $
+                Execute pname noLimitToReceive
+        pure $ parseMessage <> bindMessage <> executeMessage
 
 -- | Public
 readNextData :: Connection -> IO (Either Error DataMessage)
@@ -104,9 +104,10 @@ describeStatement
     -> B.ByteString
     -> IO (Either Error (V.Vector Oid, V.Vector FieldDescription))
 describeStatement conn stmt = do
-    sendMessage s $ Parse sname (StatementSQL stmt) V.empty
-    sendMessage s $ DescribeStatement sname
-    sendMessage s Sync
+    sendEncode s $
+           encodeClientMessage (Parse sname (StatementSQL stmt) V.empty)
+        <> encodeClientMessage (DescribeStatement sname)
+        <> encodeClientMessage Sync
     parseMessages <$> collectBeforeReadyForQuery conn
   where
     s = connRawConnection conn
