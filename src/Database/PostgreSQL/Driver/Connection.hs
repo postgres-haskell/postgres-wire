@@ -67,16 +67,15 @@ data ConnectionParameters = ConnectionParameters
 
 -- | Public
 data Connection = Connection
-    { connRawConnection         :: RawConnection
-    , connReceiverThread        :: ThreadId
+    { connRawConnection     :: RawConnection
+    , connReceiverThread    :: ThreadId
     -- channel only for Data messages
-    , connOutDataChan           :: OutChan (Either Error DataMessage)
+    , connOutDataChan       :: OutChan (Either Error DataMessage)
     -- channel for all the others messages
-    , connOutAllChan            :: OutChan ServerMessage
-    , connStatementStorage      :: StatementStorage
-    , connParameters            :: ConnectionParameters
-    , connMode                  :: IORef ConnectionMode
-    , connNotificationHandler   :: NotificationHandler
+    , connOutAllChan        :: OutChan ServerMessage
+    , connStatementStorage  :: StatementStorage
+    , connParameters        :: ConnectionParameters
+    , connMode              :: IORef ConnectionMode
     }
 
 -- | Public
@@ -107,6 +106,7 @@ buildConnection rawConn connParams msgFilter = do
 
     tid <- forkIO $
         receiverThread msgFilter rawConn inDataChan inAllChan modeRef
+        defaultNotificationHandler
     pure Connection
         { connRawConnection = rawConn
         , connReceiverThread = tid
@@ -115,7 +115,6 @@ buildConnection rawConn connParams msgFilter = do
         , connStatementStorage = storage
         , connParameters = connParams
         , connMode = modeRef
-        , connNotificationHandler = defaultNotificationHandler
         }
 
 -- | Authorizes on the server and reads connection parameters.
@@ -203,8 +202,10 @@ receiverThread
     -> InChan (Either Error DataMessage)
     -> InChan ServerMessage
     -> IORef ConnectionMode
+    -> NotificationHandler
     -> IO ()
-receiverThread msgFilter rawConn dataChan allChan modeRef = receiveLoop []
+receiverThread msgFilter rawConn dataChan allChan modeRef ntfHandler =
+    receiveLoop []
   where
     receiveLoop :: [V.Vector (Maybe B.ByteString)] -> IO ()
     receiveLoop acc = do
@@ -215,6 +216,7 @@ receiverThread msgFilter rawConn dataChan allChan modeRef = receiveLoop []
     go :: B.ByteString -> [V.Vector (Maybe B.ByteString)] -> IO [V.Vector (Maybe B.ByteString)]
     go str acc = case runDecode decodeServerMessage str of
         Right (rest, v) -> do
+            dispatchIfNotification v
             when (msgFilter v) $ writeChan allChan v
             mode <- readIORef modeRef
             newAcc <- dispatch mode dataChan v acc
@@ -222,6 +224,9 @@ receiverThread msgFilter rawConn dataChan allChan modeRef = receiveLoop []
                 then pure newAcc
                 else go rest newAcc
         Left reason -> error reason
+    dispatchIfNotification (NotificationResponse n) = ntfHandler n
+    dispatchIfNotification  _ = pure ()
+
 
 dispatch :: ConnectionMode -> Dispatcher
 dispatch SimpleQueryMode   = dispatchSimple
@@ -229,9 +234,7 @@ dispatch ExtendedQueryMode = dispatchExtended
 
 -- | Dispatcher for the SimpleQuery mode.
 dispatchSimple :: Dispatcher
-dispatchSimple dataChan message acc = case message of
-    NotificationResponse n -> pure acc
-    _ -> pure acc
+dispatchSimple dataChan message = pure
 
 -- | Dispatcher for the ExtendedQuery mode.
 dispatchExtended :: Dispatcher
@@ -247,15 +250,14 @@ dispatchExtended dataChan message acc = case message of
     EmptyQueryResponse -> do
         writeChan dataChan . Right . DataMessage $ reverse acc
         pure []
-    -- On ErrorResponse we should discard all the collected datarows
+    -- On ErrorResponse we should discard all the collected datarows.
     ErrorResponse desc -> do
         writeChan dataChan $ Left $ PostgresError desc
         pure []
-    -- TODO handle notifications
-    NotificationResponse n -> pure acc
-    -- We does not handled this case because we always send `execute`
+    -- We does not handled `PortalSuspended` because we always send `execute`
     -- with no limit.
-    PortalSuspended -> pure acc
+    -- PortalSuspended -> pure acc
+
     -- do nothing on other messages
     _ -> pure acc
 

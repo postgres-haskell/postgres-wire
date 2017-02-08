@@ -135,6 +135,7 @@ decodeCommandResult s =
                        (pure . RowsCount . fromInteger . fst)
                        . readInteger . B.dropWhile (== space)
 
+-- Helper to parse, not used by decoder itself
 parseServerVersion :: B.ByteString -> Maybe ServerVersion
 parseServerVersion bs =
     let (numbersStr, desc) = B.span isDigitDot bs
@@ -148,6 +149,7 @@ parseServerVersion bs =
                  | c >= 48 && c < 58 = True -- digits
                  | otherwise         = False
 
+-- Helper to parse, not used by decoder itself
 parseIntegerDatetimes :: B.ByteString -> Bool
 parseIntegerDatetimes  bs | bs == "on" || bs == "yes" || bs == "1" = True
                           | otherwise                              = False
