@@ -1,19 +1,22 @@
 {-# language RecordWildCards #-}
-module Database.PostgreSQL.Protocol.Decoders where
 
-import Data.Word
-import Data.Int
-import Data.Monoid
-import Data.Maybe (fromMaybe)
-import Data.Foldable
-import Data.Char (chr)
-import Control.Applicative
-import Control.Monad
-import Text.Read
+module Database.PostgreSQL.Protocol.Decoders
+    ( decodeAuthResponse
+    , decodeServerMessage
+    -- * Helpers
+    , parseServerVersion
+    , parseIntegerDatetimes
+    ) where
+
+import           Control.Applicative
+import           Control.Monad
+import           Data.Monoid ((<>))
+import           Data.Maybe (fromMaybe)
+import           Data.Char (chr)
+import           Text.Read (readMaybe)
 import qualified Data.Vector as V
 import qualified Data.ByteString as B
-import           Data.ByteString.Char8 as BS(readInteger, readInt, unpack)
-import qualified Data.ByteString.Lazy as BL
+import           Data.ByteString.Char8 as BS(readInteger, readInt, unpack, pack)
 import qualified Data.HashMap.Strict as HM
 
 import Database.PostgreSQL.Protocol.Types
@@ -25,7 +28,8 @@ decodeAuthResponse = do
     len <- getInt32BE
     case chr $ fromIntegral c of
         'E' -> AuthErrorResponse <$>
-            (getByteString (fromIntegral $ len - 4) >>= decodeErrorDesc)
+            (getByteString (fromIntegral $ len - 4) >>=
+                eitherToDecode .parseErrorDesc)
         'R' -> do
             rType <- getInt32BE
             case rType of
@@ -49,16 +53,18 @@ decodeServerMessage = do
         '2' -> pure BindComplete
         '3' -> pure CloseComplete
         'C' -> CommandComplete <$> (getByteString (fromIntegral $ len - 4)
-                                    >>= decodeCommandResult)
+                                    >>= eitherToDecode . parseCommandResult)
         'D' -> do
             columnCount <- fromIntegral <$> getInt16BE
             DataRow <$> V.replicateM columnCount decodeValue
         'I' -> pure EmptyQueryResponse
         'E' -> ErrorResponse <$>
-            (getByteString (fromIntegral $ len - 4) >>= decodeErrorDesc)
+            (getByteString (fromIntegral $ len - 4) >>=
+                eitherToDecode . parseErrorDesc)
         'n' -> pure NoData
         'N' -> NoticeResponse <$>
-            (getByteString (fromIntegral $ len - 4) >>= decodeNoticeDesc)
+            (getByteString (fromIntegral $ len - 4) >>=
+                eitherToDecode . parseNoticeDesc)
         'A' -> NotificationResponse <$> decodeNotification
         't' -> do
             paramCount <- fromIntegral <$> getInt16BE
@@ -75,10 +81,10 @@ decodeServerMessage = do
 -- | Decodes a single data value. Length `-1` indicates a NULL column value.
 -- No value bytes follow in the NULL case.
 decodeValue :: Decode (Maybe B.ByteString)
-decodeValue = fromIntegral <$> getInt32BE >>= \n ->
+decodeValue = getInt32BE >>= \n ->
     if n == -1
     then pure Nothing
-    else Just <$> getByteString n
+    else Just <$> getByteString (fromIntegral n)
 
 decodeTransactionStatus :: Decode TransactionStatus
 decodeTransactionStatus =  getWord8 >>= \t ->
@@ -111,29 +117,7 @@ decodeFormat = getInt16BE >>= \f ->
         1 -> pure Binary
         _ -> fail "Unknown field format"
 
-decodeCommandResult :: B.ByteString -> Decode CommandResult
-decodeCommandResult s =
-    let (command, rest) = B.break (== space) s
-    in case command of
-        -- format: `INSERT oid rows`
-        "INSERT" ->
-            maybe (fail "Invalid format in INSERT command result") pure $ do
-                (oid, r) <- readInteger $ B.dropWhile (== space) rest
-                (rows, _) <- readInteger $ B.dropWhile (== space) r
-                pure $ InsertCompleted (Oid $ fromInteger oid)
-                                       (RowsCount $ fromInteger rows)
-        "DELETE" -> DeleteCompleted <$> readRows rest
-        "UPDATE" -> UpdateCompleted <$> readRows rest
-        "SELECT" -> SelectCompleted <$> readRows rest
-        "MOVE"   -> MoveCompleted <$> readRows rest
-        "FETCH"  -> FetchCompleted <$> readRows rest
-        "COPY"   -> CopyCompleted <$> readRows rest
-        _        -> pure CommandOk
-  where
-    space = 32
-    readRows = maybe (fail "Invalid rows format in command result")
-                       (pure . RowsCount . fromInteger . fst)
-                       . readInteger . B.dropWhile (== space)
+-- Parser that just work with B.ByteString, not Decode type
 
 -- Helper to parse, not used by decoder itself
 parseServerVersion :: B.ByteString -> Maybe ServerVersion
@@ -154,28 +138,54 @@ parseIntegerDatetimes :: B.ByteString -> Bool
 parseIntegerDatetimes  bs | bs == "on" || bs == "yes" || bs == "1" = True
                           | otherwise                              = False
 
-decodeErrorNoticeFields :: B.ByteString -> HM.HashMap Char B.ByteString
-decodeErrorNoticeFields = HM.fromList
+parseCommandResult :: B.ByteString -> Either B.ByteString CommandResult
+parseCommandResult s =
+    let (command, rest) = B.break (== space) s
+    in case command of
+        -- format: `INSERT oid rows`
+        "INSERT" ->
+            maybe (Left "Invalid format in INSERT command result") Right $ do
+                (oid, r) <- readInteger $ B.dropWhile (== space) rest
+                (rows, _) <- readInteger $ B.dropWhile (== space) r
+                Just $ InsertCompleted (Oid $ fromInteger oid)
+                                       (RowsCount $ fromInteger rows)
+        "DELETE" -> DeleteCompleted <$> readRows rest
+        "UPDATE" -> UpdateCompleted <$> readRows rest
+        "SELECT" -> SelectCompleted <$> readRows rest
+        "MOVE"   -> MoveCompleted   <$> readRows rest
+        "FETCH"  -> FetchCompleted  <$> readRows rest
+        "COPY"   -> CopyCompleted   <$> readRows rest
+        _        -> Right CommandOk
+  where
+    space = 32
+    readRows = maybe (Left "Invalid rows format in command result")
+                       (pure . RowsCount . fromInteger . fst)
+                       . readInteger . B.dropWhile (== space)
+
+parseErrorNoticeFields :: B.ByteString -> HM.HashMap Char B.ByteString
+parseErrorNoticeFields = HM.fromList
     . fmap (\s -> (chr . fromIntegral $ B.head s, B.tail s))
     . filter (not . B.null) . B.split 0
 
-decodeErrorSeverity :: B.ByteString -> ErrorSeverity
-decodeErrorSeverity "ERROR" = SeverityError
-decodeErrorSeverity "FATAL" = SeverityFatal
-decodeErrorSeverity "PANIC" = SeverityPanic
-decodeErrorSeverity _       = UnknownErrorSeverity
+parseErrorSeverity :: B.ByteString -> ErrorSeverity
+parseErrorSeverity bs = case bs of
+    "ERROR" -> SeverityError
+    "FATAL" -> SeverityFatal
+    "PANIC" -> SeverityPanic
+    _       -> UnknownErrorSeverity
 
-decodeNoticeSeverity :: B.ByteString -> NoticeSeverity
-decodeNoticeSeverity "WARNING" = SeverityWarning
-decodeNoticeSeverity "NOTICE"  = SeverityNotice
-decodeNoticeSeverity "DEBUG"   = SeverityDebug
-decodeNoticeSeverity "INFO"    = SeverityInfo
-decodeNoticeSeverity "LOG"     = SeverityLog
-decodeNoticeSeverity _         = UnknownNoticeSeverity
+parseNoticeSeverity :: B.ByteString -> NoticeSeverity
+parseNoticeSeverity bs = case bs of
+    "WARNING" -> SeverityWarning
+    "NOTICE"  -> SeverityNotice
+    "DEBUG"   -> SeverityDebug
+    "INFO"    -> SeverityInfo
+    "LOG"     -> SeverityLog
+    _         -> UnknownNoticeSeverity
 
-decodeErrorDesc :: B.ByteString -> Decode ErrorDesc
-decodeErrorDesc s = do
-    let hm = decodeErrorNoticeFields s
+parseErrorDesc :: B.ByteString -> Either B.ByteString ErrorDesc
+parseErrorDesc s = do
+    let hm = parseErrorNoticeFields s
     errorSeverityOld <- lookupKey 'S' hm
     errorCode        <- lookupKey 'C' hm
     errorMessage     <- lookupKey 'M' hm
@@ -184,7 +194,7 @@ decodeErrorDesc s = do
         -- never localized. This is present only in messages generated by
         -- PostgreSQL versions 9.6 and later.
         errorSeverityNew      = HM.lookup 'V' hm
-        errorSeverity         = decodeErrorSeverity $
+        errorSeverity         = parseErrorSeverity $
                                 fromMaybe errorSeverityOld errorSeverityNew
         errorDetail           = HM.lookup 'D' hm
         errorHint             = HM.lookup 'H' hm
@@ -200,15 +210,15 @@ decodeErrorDesc s = do
         errorSourceFilename   = HM.lookup 'F' hm
         errorSourceLine       = HM.lookup 'L' hm >>= fmap fst . readInt
         errorSourceRoutine    = HM.lookup 'R' hm
-    pure ErrorDesc{..}
+    Right ErrorDesc{..}
   where
-    lookupKey c = maybe (fail $ "Neccessary key " ++ show c ++
+    lookupKey c = maybe (Left $ "Neccessary key " <> BS.pack (show c) <>
                          "is not presented in ErrorResponse message")
-                         pure . HM.lookup c
+                         Right . HM.lookup c
 
-decodeNoticeDesc :: B.ByteString -> Decode NoticeDesc
-decodeNoticeDesc s = do
-    let hm = decodeErrorNoticeFields s
+parseNoticeDesc :: B.ByteString -> Either B.ByteString NoticeDesc
+parseNoticeDesc s = do
+    let hm = parseErrorNoticeFields s
     noticeSeverityOld <- lookupKey 'S' hm
     noticeCode        <- lookupKey 'C' hm
     noticeMessage     <- lookupKey 'M' hm
@@ -217,7 +227,7 @@ decodeNoticeDesc s = do
         -- never localized. This is present only in messages generated by
         -- PostgreSQL versions 9.6 and later.
         noticeSeverityNew      = HM.lookup 'V' hm
-        noticeSeverity         = decodeNoticeSeverity $
+        noticeSeverity         = parseNoticeSeverity $
                                 fromMaybe noticeSeverityOld noticeSeverityNew
         noticeDetail           = HM.lookup 'D' hm
         noticeHint             = HM.lookup 'H' hm
@@ -233,9 +243,12 @@ decodeNoticeDesc s = do
         noticeSourceFilename   = HM.lookup 'F' hm
         noticeSourceLine       = HM.lookup 'L' hm >>= fmap fst . readInt
         noticeSourceRoutine    = HM.lookup 'R' hm
-    pure NoticeDesc{..}
+    Right NoticeDesc{..}
   where
-    lookupKey c = maybe (fail $ "Neccessary key " ++ show c ++
+    lookupKey c = maybe (Left $ "Neccessary key " <> BS.pack (show c) <>
                          "is not presented in NoticeResponse message")
-                         pure . HM.lookup c
+                         Right . HM.lookup c
+
+eitherToDecode :: Either B.ByteString a -> Decode a
+eitherToDecode = either (fail . BS.unpack) pure
 
