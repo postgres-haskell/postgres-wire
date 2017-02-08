@@ -1,6 +1,7 @@
 module Database.PostgreSQL.Protocol.Types where
 
--- TODO
+-- Exports all declared datatypes
+--
 -- * COPY subprotocol commands
 --
 -- * function call, is deprecated by postgres
@@ -28,14 +29,19 @@ newtype DatabaseName = DatabaseName ByteString deriving (Show)
 newtype MD5Salt      = MD5Salt ByteString      deriving (Show)
 
 data PasswordText
-    = PasswordPlain ByteString
-    | PasswordMD5 ByteString
+    = PasswordPlain !ByteString
+    | PasswordMD5 !ByteString
     deriving (Show)
 
 newtype ServerProcessId = ServerProcessId Int32 deriving (Show)
 newtype ServerSecretKey  = ServerSecretKey Int32 deriving (Show)
 
-newtype RowsCount = RowsCount Word deriving (Show)
+-- | Server version contains major, minor, revision numbers.
+-- Examples:
+--   9.6.0        ServerVersion 9 6 0 ""
+--   10.1beta2  - ServerVersion 10 1 0 "beta2"
+data ServerVersion = ServerVersion !Word8 !Word8 !Word8 !ByteString
+    deriving (Eq, Show)
 
 -- | Maximum number of rows to return, if portal contains a query that
 -- returns rows (ignored otherwise). Zero denotes "no limit".
@@ -60,13 +66,9 @@ data CommandResult
     | CommandOk
     deriving (Show)
 
--- | Server version contains major, minor, revision numbers.
--- Examples:
---   9.6.0        ServerVersion 9 6 0 ""
---   10.1beta2  - ServerVersion 10 1 0 "beta2"
-data ServerVersion = ServerVersion Word8 Word8 Word8 ByteString
-    deriving (Eq, Show)
+newtype RowsCount = RowsCount Word deriving (Show)
 
+-- | Status of transaction block returned by ReadyForQuery.
 data TransactionStatus
     -- | not in a transaction block
     = TransactionIdle
@@ -77,28 +79,32 @@ data TransactionStatus
     | TransactionFailed
     deriving (Show)
 
+-- | Format of query parameters and returned values.
 data Format = Text | Binary
     deriving (Show)
 
 -- All the commands have the same names as presented in the official
 -- postgres documentation except explicit exclusions.
---
+
+-- | Messages that client can issue at the startup phase.
 data StartMessage
-    = StartupMessage Username DatabaseName
+    = StartupMessage !Username !DatabaseName
     | SSLRequest
     deriving (Show)
 
+-- | Server responses to startup messages.
 data AuthResponse
     = AuthenticationOk
     | AuthenticationCleartextPassword
-    | AuthenticationMD5Password MD5Salt
+    | AuthenticationMD5Password !MD5Salt
     | AuthenticationGSS
     | AuthenticationSSPI
-    | AuthenticationGSSContinue ByteString
+    | AuthenticationGSSContinue !ByteString
     -- same as ErrorResponse
-    | AuthErrorResponse ErrorDesc
+    | AuthErrorResponse !ErrorDesc
     deriving (Show)
 
+-- | Messages that client can issue in usual query phase.
 data ClientMessage
     = Bind !PortalName !StatementName
         !Format                      -- parameter format code, one format for all
@@ -123,54 +129,58 @@ data ClientMessage
     | Terminate
     deriving (Show)
 
-data CancelRequest = CancelRequest ServerProcessId ServerSecretKey
+-- | Message for canceling requests.
+data CancelRequest = CancelRequest !ServerProcessId !ServerSecretKey
     deriving (Show)
 
+-- | All possible responses from a server in usual query phase.
 data ServerMessage
-    = BackendKeyData ServerProcessId ServerSecretKey
+    = BackendKeyData !ServerProcessId !ServerSecretKey
     | BindComplete
     | CloseComplete
     | CommandComplete CommandResult
-    | DataRow (Vector (Maybe ByteString))  -- Nothing shoulde be recognized as NULL
+    | DataRow !(Vector (Maybe ByteString))  -- Nothing shoulde be recognized as NULL
     | EmptyQueryResponse
-    | ErrorResponse ErrorDesc
+    | ErrorResponse !ErrorDesc
     | NoData
     | NoticeResponse NoticeDesc
-    | NotificationResponse Notification
-    | ParameterDescription (Vector Oid)
-    | ParameterStatus ByteString ByteString -- name and value
+    | NotificationResponse !Notification
+    | ParameterDescription !(Vector Oid)
+    | ParameterStatus !ByteString !ByteString -- name and value
     | ParseComplete
     | PortalSuspended
-    | ReadForQuery TransactionStatus
-    | RowDescription (Vector FieldDescription)
+    | ReadForQuery !TransactionStatus
+    | RowDescription !(Vector FieldDescription)
     deriving (Show)
 
+-- | Notification issued by `NOTIFY`.
 data Notification = Notification
-    { notificationProcessId :: ServerProcessId
-    , notificationChannel   :: ChannelName
-    , notificationPayload   :: ByteString
+    { notificationProcessId :: !ServerProcessId
+    , notificationChannel   :: !ChannelName
+    , notificationPayload   :: !ByteString
     } deriving (Show)
 
+-- | Field description returned on describe statement message.
 data FieldDescription = FieldDescription {
     -- | the field name
-      fieldName :: ByteString
+      fieldName         :: !ByteString
     -- | If the field can be identified as a column of a specific table,
     -- the object ID of the table; otherwise zero.
-    , fieldTableOid :: Oid
+    , fieldTableOid     :: !Oid
     --  | If the field can be identified as a column of a specific table,
     --  the attribute number of the column; otherwise zero.
-    , fieldColumnNumber :: Int16
+    , fieldColumnNumber :: !Int16
     -- | The object ID of the field's data type.
-    , fieldTypeOid :: Oid
+    , fieldTypeOid      :: !Oid
     -- | The data type size (see pg_type.typlen). Note that negative
     -- values denote variable-width types.
-    , fieldSize :: Int16
+    , fieldSize         :: !Int16
     -- | The type modifier (see pg_attribute.atttypmod).
-    , fieldMode :: Int32
+    , fieldMode         :: !Int32
     -- | The format code being used for the field. In a RowDescription
     -- returned from the statement variant of Describe, the format code
     -- is not yet known and will always be zero.
-    , fieldFormat :: Format
+    , fieldFormat       :: !Format
     } deriving (Show)
 
 data ErrorSeverity
@@ -189,43 +199,45 @@ data NoticeSeverity
     | UnknownNoticeSeverity
     deriving (Show, Eq)
 
+-- | Information about ErrorResponse.
 data ErrorDesc = ErrorDesc
-    { errorSeverity         :: ErrorSeverity
-    , errorCode             :: ByteString
-    , errorMessage          :: ByteString
-    , errorDetail           :: Maybe ByteString
-    , errorHint             :: Maybe ByteString
-    , errorPosition         :: Maybe Int
-    , errorInternalPosition :: Maybe Int
-    , errorInternalQuery    :: Maybe ByteString
-    , errorContext          :: Maybe ByteString
-    , errorSchema           :: Maybe ByteString
-    , errorTable            :: Maybe ByteString
-    , errorColumn           :: Maybe ByteString
-    , errorDataType         :: Maybe ByteString
-    , errorConstraint       :: Maybe ByteString
-    , errorSourceFilename   :: Maybe ByteString
-    , errorSourceLine       :: Maybe Int
-    , errorSourceRoutine    :: Maybe ByteString
+    { errorSeverity         :: !ErrorSeverity
+    , errorCode             :: !ByteString
+    , errorMessage          :: !ByteString
+    , errorDetail           :: !Maybe ByteString
+    , errorHint             :: !Maybe ByteString
+    , errorPosition         :: !Maybe Int
+    , errorInternalPosition :: !Maybe Int
+    , errorInternalQuery    :: !Maybe ByteString
+    , errorContext          :: !Maybe ByteString
+    , errorSchema           :: !Maybe ByteString
+    , errorTable            :: !Maybe ByteString
+    , errorColumn           :: !Maybe ByteString
+    , errorDataType         :: !Maybe ByteString
+    , errorConstraint       :: !Maybe ByteString
+    , errorSourceFilename   :: !Maybe ByteString
+    , errorSourceLine       :: !Maybe Int
+    , errorSourceRoutine    :: !Maybe ByteString
     } deriving (Show)
 
+-- | Information about NoticeResponse.
 data NoticeDesc = NoticeDesc
-    { noticeSeverity         :: NoticeSeverity
-    , noticeCode             :: ByteString
-    , noticeMessage          :: ByteString
-    , noticeDetail           :: Maybe ByteString
-    , noticeHint             :: Maybe ByteString
-    , noticePosition         :: Maybe Int
-    , noticeInternalPosition :: Maybe Int
-    , noticeInternalQuery    :: Maybe ByteString
-    , noticeContext          :: Maybe ByteString
-    , noticeSchema           :: Maybe ByteString
-    , noticeTable            :: Maybe ByteString
-    , noticeColumn           :: Maybe ByteString
-    , noticeDataType         :: Maybe ByteString
-    , noticeConstraint       :: Maybe ByteString
-    , noticeSourceFilename   :: Maybe ByteString
-    , noticeSourceLine       :: Maybe Int
-    , noticeSourceRoutine    :: Maybe ByteString
+    { noticeSeverity         :: !NoticeSeverity
+    , noticeCode             :: !ByteString
+    , noticeMessage          :: !ByteString
+    , noticeDetail           :: !Maybe ByteString
+    , noticeHint             :: !Maybe ByteString
+    , noticePosition         :: !Maybe Int
+    , noticeInternalPosition :: !Maybe Int
+    , noticeInternalQuery    :: !Maybe ByteString
+    , noticeContext          :: !Maybe ByteString
+    , noticeSchema           :: !Maybe ByteString
+    , noticeTable            :: !Maybe ByteString
+    , noticeColumn           :: !Maybe ByteString
+    , noticeDataType         :: !Maybe ByteString
+    , noticeConstraint       :: !Maybe ByteString
+    , noticeSourceFilename   :: !Maybe ByteString
+    , noticeSourceLine       :: !Maybe Int
+    , noticeSourceRoutine    :: !Maybe ByteString
     } deriving (Show)
 
