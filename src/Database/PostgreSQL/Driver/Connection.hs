@@ -9,9 +9,10 @@ import Data.Traversable
 import Data.Foldable
 import Control.Applicative
 import Control.Exception
+import GHC.Conc (labelThread)
 import Data.IORef
 import Data.Monoid
-import Control.Concurrent (forkIO, killThread, ThreadId, threadDelay)
+import Control.Concurrent (forkIOWithUnmask, killThread, ThreadId, threadDelay)
 import Data.Binary.Get ( runGetIncremental, pushChunk)
 import qualified Data.Binary.Get as BG (Decoder(..))
 import qualified Data.Vector as V
@@ -43,6 +44,9 @@ data Connection = Connection
     , connMode              :: IORef ConnectionMode
     }
 
+type InDataChan = InChan (Either Error DataMessage)
+type InAllChan  = InChan (Either Error ServerMessage)
+
 -- | Parameters of the current connection.
 -- We store only the parameters that cannot change after startup.
 -- For more information about additional parameters see
@@ -71,7 +75,7 @@ defaultNotificationHandler :: NotificationHandler
 defaultNotificationHandler = const $ pure ()
 
 type DataDispatcher
-    =  InChan (Either Error DataMessage)
+    =  InDataChan
     -> ServerMessage
     -> [V.Vector (Maybe B.ByteString)]
     -> IO [V.Vector (Maybe B.ByteString)]
@@ -153,9 +157,12 @@ buildConnection rawConn connParams msgFilter = do
     storage                   <- newStatementStorage
     modeRef                   <- newIORef defaultConnectionMode
 
-    tid <- forkIO $
-        receiverThread msgFilter rawConn inDataChan inAllChan modeRef
-        defaultNotificationHandler
+    tid <- mask_ $ forkIOWithUnmask $ \unmask ->
+        unmask (receiverThread msgFilter rawConn
+                inDataChan inAllChan modeRef defaultNotificationHandler)
+        `catch` receiverOnException inDataChan inAllChan
+    labelThread tid "postgres-wire receiver"
+
     pure Connection
         { connRawConnection    = rawConn
         , connReceiverThread   = tid
@@ -203,11 +210,14 @@ close conn = do
     killThread $ connReceiverThread conn
     rClose $ connRawConnection conn
 
+-- | When thread receives unexpected exception or fihishes by
+-- any reason, than it writes Error to BOTH chans to prevent other threads
+-- blocking on reading from these chans.
 receiverThread
     :: ServerMessageFilter
     -> RawConnection
-    -> InChan (Either Error DataMessage)
-    -> InChan (Either Error ServerMessage)
+    -> InDataChan
+    -> InAllChan
     -> IORef ConnectionMode
     -> NotificationHandler
     -> IO ()
@@ -224,7 +234,8 @@ receiverThread msgFilter rawConn dataChan allChan modeRef ntfHandler =
             r <- rReceive rawConn 4096
             receiveLoop Nothing (bs <> r) acc
         | otherwise =  case runDecode decodeHeader bs of
-            Left reason -> pushDecodeError $ DecodeError $ BS.pack reason
+            Left reason -> reportReceiverError dataChan allChan
+                            $ DecodeError $ BS.pack reason
             Right (rest, h) ->  receiveLoop (Just h) rest acc
     -- Parsing body
     receiveLoop (Just h@(Header _ len)) bs acc
@@ -232,20 +243,31 @@ receiverThread msgFilter rawConn dataChan allChan modeRef ntfHandler =
             r <- rReceive rawConn 4096
             receiveLoop (Just h) (bs <> r) acc
         | otherwise = case runDecode (decodeServerMessage h) bs of
-            Left reason -> pushDecodeError $ DecodeError $ BS.pack reason
+            Left reason -> reportReceiverError dataChan allChan
+                            $ DecodeError $ BS.pack reason
             Right (rest, v) -> do
-                dispatchIfNotification v
+                dispatchIfNotification v ntfHandler
                 when (msgFilter v) $ writeChan allChan $ Right v
                 mode <- readIORef modeRef
                 newAcc <- dispatch mode dataChan v acc
                 receiveLoop Nothing rest newAcc
 
-    dispatchIfNotification (NotificationResponse n) = ntfHandler n
-    dispatchIfNotification  _ = pure ()
+dispatchIfNotification :: ServerMessage -> NotificationHandler -> IO ()
+dispatchIfNotification msg handler = case msg of
+    NotificationResponse n -> handler n
+    _                      -> pure ()
 
-    pushDecodeError err = do
-        writeChan dataChan (Left err)
-        writeChan allChan (Left err)
+-- | Exception handler for receiver thread.
+-- Called only in masked state.
+receiverOnException :: InDataChan -> InAllChan -> SomeException -> IO ()
+receiverOnException dataChan allChan exc =
+    reportReceiverError dataChan allChan $ UnexpectedError exc
+
+-- | Reporting about any unexpected error to the thread than reads from chans.
+reportReceiverError :: InDataChan -> InAllChan -> Error -> IO ()
+reportReceiverError dataChan allChan err = do
+    writeChan dataChan (Left err)
+    writeChan allChan (Left err)
 
 dispatch :: ConnectionMode -> DataDispatcher
 dispatch SimpleQueryMode   = dispatchSimple

@@ -1,5 +1,6 @@
 module Database.PostgreSQL.Driver.Error where
 
+import Control.Exception
 import Data.ByteString (ByteString)
 import System.Socket (AddressInfoException)
 
@@ -11,6 +12,7 @@ data Error
     | DecodeError ByteString
     | AuthError AuthError
     | ImpossibleError ByteString
+    | UnexpectedError SomeException
     deriving (Show)
 
 -- Errors that might occur at authorization phase.
