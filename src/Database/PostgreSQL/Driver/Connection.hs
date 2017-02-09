@@ -29,6 +29,31 @@ import Database.PostgreSQL.Driver.StatementStorage
 import Database.PostgreSQL.Driver.Error
 import Database.PostgreSQL.Driver.RawConnection
 
+-- | Public
+data Connection = Connection
+    { connRawConnection     :: RawConnection
+    , connReceiverThread    :: ThreadId
+    -- channel only for Data messages
+    , connOutDataChan       :: OutChan (Either Error DataMessage)
+    -- channel for all the others messages
+    , connOutAllChan        :: OutChan ServerMessage
+    , connStatementStorage  :: StatementStorage
+    , connParameters        :: ConnectionParameters
+    , connMode              :: IORef ConnectionMode
+    }
+
+-- | Parameters of the current connection.
+-- We store only the parameters that cannot change after startup.
+-- For more information about additional parameters see
+-- PostgreSQL documentation.
+data ConnectionParameters = ConnectionParameters
+    { paramServerVersion    :: ServerVersion
+    -- | character set name
+    , paramServerEncoding   :: B.ByteString
+    -- | True if integer datetimes used
+    , paramIntegerDatetimes :: Bool
+    } deriving (Show)
+
 data ConnectionMode
     -- | In this mode, all result's data is ignored
     = SimpleQueryMode
@@ -44,7 +69,7 @@ type NotificationHandler = Notification -> IO ()
 defaultNotificationHandler :: NotificationHandler
 defaultNotificationHandler = const $ pure ()
 
-type Dispatcher
+type DataDispatcher
     =  InChan (Either Error DataMessage)
     -> ServerMessage
     -> [V.Vector (Maybe B.ByteString)]
@@ -53,30 +78,6 @@ type Dispatcher
 data DataMessage = DataMessage [V.Vector (Maybe B.ByteString)]
     deriving (Show, Eq)
 
--- | Parameters of the current connection.
--- We store only the parameters that cannot change after startup.
--- For more information about additional parameters see
--- PostgreSQL documentation.
-data ConnectionParameters = ConnectionParameters
-    { paramServerVersion    :: ServerVersion
-    -- | character set name
-    , paramServerEncoding   :: B.ByteString
-    -- | True if integer datetimes used
-    , paramIntegerDatetimes :: Bool
-    } deriving (Show)
-
--- | Public
-data Connection = Connection
-    { connRawConnection     :: RawConnection
-    , connReceiverThread    :: ThreadId
-    -- channel only for Data messages
-    , connOutDataChan       :: OutChan (Either Error DataMessage)
-    -- channel for all the others messages
-    , connOutAllChan        :: OutChan ServerMessage
-    , connStatementStorage  :: StatementStorage
-    , connParameters        :: ConnectionParameters
-    , connMode              :: IORef ConnectionMode
-    }
 
 -- | Public
 connect :: ConnectionSettings -> IO (Either Error Connection)
@@ -92,30 +93,6 @@ connectWith settings msgFilter =
             authorize rawConn settings >>=
                 either throwErrorInIO (\params ->
                     Right <$> buildConnection rawConn params msgFilter))
-
-buildConnection
-    :: RawConnection
-    -> ConnectionParameters
-    -> ServerMessageFilter
-    -> IO Connection
-buildConnection rawConn connParams msgFilter = do
-    (inDataChan, outDataChan) <- newChan
-    (inAllChan, outAllChan)   <- newChan
-    storage                   <- newStatementStorage
-    modeRef                   <- newIORef defaultConnectionMode
-
-    tid <- forkIO $
-        receiverThread msgFilter rawConn inDataChan inAllChan modeRef
-        defaultNotificationHandler
-    pure Connection
-        { connRawConnection = rawConn
-        , connReceiverThread = tid
-        , connOutDataChan = outDataChan
-        , connOutAllChan = outAllChan
-        , connStatementStorage = storage
-        , connParameters = connParams
-        , connMode = modeRef
-        }
 
 -- | Authorizes on the server and reads connection parameters.
 authorize
@@ -160,6 +137,30 @@ authorize rawConn settings = do
             (settingsPassword settings <> settingsUser settings) <> salt)
     md5Hash bs = BS.pack $ show (hash bs :: Digest MD5)
 
+buildConnection
+    :: RawConnection
+    -> ConnectionParameters
+    -> ServerMessageFilter
+    -> IO Connection
+buildConnection rawConn connParams msgFilter = do
+    (inDataChan, outDataChan) <- newChan
+    (inAllChan, outAllChan)   <- newChan
+    storage                   <- newStatementStorage
+    modeRef                   <- newIORef defaultConnectionMode
+
+    tid <- forkIO $
+        receiverThread msgFilter rawConn inDataChan inAllChan modeRef
+        defaultNotificationHandler
+    pure Connection
+        { connRawConnection = rawConn
+        , connReceiverThread = tid
+        , connOutDataChan = outDataChan
+        , connOutAllChan = outAllChan
+        , connStatementStorage = storage
+        , connParameters = connParams
+        , connMode = modeRef
+        }
+
 -- | Parses connection parameters.
 parseParameters :: B.ByteString -> Either Error ConnectionParameters
 parseParameters str = do
@@ -196,6 +197,7 @@ close conn = do
     killThread $ connReceiverThread conn
     rClose $ connRawConnection conn
 
+
 receiverThread
     :: ServerMessageFilter
     -> RawConnection
@@ -227,17 +229,16 @@ receiverThread msgFilter rawConn dataChan allChan modeRef ntfHandler =
     dispatchIfNotification (NotificationResponse n) = ntfHandler n
     dispatchIfNotification  _ = pure ()
 
-
-dispatch :: ConnectionMode -> Dispatcher
+dispatch :: ConnectionMode -> DataDispatcher
 dispatch SimpleQueryMode   = dispatchSimple
 dispatch ExtendedQueryMode = dispatchExtended
 
 -- | Dispatcher for the SimpleQuery mode.
-dispatchSimple :: Dispatcher
+dispatchSimple :: DataDispatcher
 dispatchSimple dataChan message = pure
 
 -- | Dispatcher for the ExtendedQuery mode.
-dispatchExtended :: Dispatcher
+dispatchExtended :: DataDispatcher
 dispatchExtended dataChan message acc = case message of
     -- Command is completed, return the result
     CommandComplete _ -> do
