@@ -2,6 +2,7 @@
 module Database.PostgreSQL.Driver.RawConnection where
 
 import Control.Monad (void)
+import Control.Exception (bracketOnError)
 import Safe (headMay)
 import Data.Monoid ((<>))
 import System.Socket (socket, AddressInfo(..), getAddressInfo, socketAddress,
@@ -38,6 +39,12 @@ createRawConnection settings
         | "/" `B.isPrefixOf` host = unixConnection host
         | otherwise               = tcpConnection
   where
+    createAndConnect Nothing creating = throwAuthErrorInIO AuthInvalidAddress
+    createAndConnect (Just address) creating =
+        bracketOnError creating close $ \s -> do
+            connect s address
+            pure . Right $ constructRawConnection s
+
     unixConnection dirPath = do
         let mAddress = socketAddressUnixPath $ makeUnixPath dirPath
         createAndConnect mAddress (socket :: IO (Socket Unix Stream Unix))
@@ -47,12 +54,6 @@ createRawConnection settings
             (getAddressInfo (Just host) (Just portStr) aiV4Mapped
              :: IO [AddressInfo Inet Stream TCP])
         createAndConnect mAddress (socket :: IO (Socket Inet Stream TCP))
-
-    createAndConnect Nothing creating = throwAuthErrorInIO AuthInvalidAddress
-    createAndConnect (Just address) creating = do
-        s <- creating
-        connect s address
-        pure . Right $ constructRawConnection s
 
     portStr = BS.pack . show $ settingsPort settings
     host    = settingsHost settings

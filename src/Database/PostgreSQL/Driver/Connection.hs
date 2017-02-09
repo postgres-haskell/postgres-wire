@@ -207,7 +207,7 @@ receiverThread
     -> NotificationHandler
     -> IO ()
 receiverThread msgFilter rawConn dataChan allChan modeRef ntfHandler =
-    receiveLoop []
+    receiveLoop  []
   where
     receiveLoop :: [V.Vector (Maybe B.ByteString)] -> IO ()
     receiveLoop acc = do
