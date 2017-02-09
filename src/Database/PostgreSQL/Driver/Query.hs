@@ -25,18 +25,37 @@ data Query = Query
     } deriving (Show)
 
 -- | Public
+sendBatchAndFlush :: Connection -> [Query] -> IO ()
+sendBatchAndFlush = sendBatchEndBy Flush
+
+-- | Public
 sendBatchAndSync :: Connection -> [Query] -> IO ()
 sendBatchAndSync = sendBatchEndBy Sync
 
 -- | Public
-sendBatchAndFlush :: Connection -> [Query] -> IO ()
-sendBatchAndFlush = sendBatchEndBy Flush
+sendSimpleQuery :: Connection -> B.ByteString -> IO (Either Error ())
+sendSimpleQuery conn q = withConnectionMode conn SimpleQueryMode $ \c -> do
+    sendMessage (connRawConnection c) $ SimpleQuery (StatementSQL q)
+    waitReadyForQuery c
+
+-- | Public
+readNextData :: Connection -> IO (Either Error DataMessage)
+readNextData conn = readChan $ connOutDataChan conn
+
+-- | Public
+-- MUST BE called after every sended `Sync` message
+-- discards all messages preceding `ReadyForQuery`
+waitReadyForQuery :: Connection -> IO (Either Error ())
+waitReadyForQuery = fmap (>>= (liftError . findFirstError))
+                    . collectUntilReadyForQuery
+  where
+    liftError = maybe (Right ()) (Left . PostgresError)
 
 -- Helper
 sendBatchEndBy :: ClientMessage -> Connection -> [Query] -> IO ()
 sendBatchEndBy msg conn qs = do
     batch <- constructBatch conn qs
-    sendEncode (connRawConnection conn) $ batch <> encodeClientMessage msg
+    sendEncode conn $ batch <> encodeClientMessage msg
 
 constructBatch :: Connection -> [Query] -> IO Encode
 constructBatch conn = fmap fold . traverse constructSingle
@@ -66,52 +85,17 @@ constructBatch conn = fmap fold . traverse constructSingle
         pure $ parseMessage <> bindMessage <> executeMessage
 
 -- | Public
-readNextData :: Connection -> IO (Either Error DataMessage)
-readNextData conn = readChan $ connOutDataChan conn
-
--- | Public
-sendSimpleQuery :: Connection -> B.ByteString -> IO (Either Error ())
-sendSimpleQuery conn q = withConnectionMode conn SimpleQueryMode $ \c -> do
-    sendMessage (connRawConnection c) $ SimpleQuery (StatementSQL q)
-    readReadyForQuery c
-
-
--- | Public
--- SHOULD BE called after every sended `Sync` message
--- skips all messages except `ReadyForQuery`
-readReadyForQuery :: Connection -> IO (Either Error ())
-readReadyForQuery = fmap (>>= (liftError . findFirstError))
-                    . collectBeforeReadyForQuery
-  where
-    liftError = maybe (Right ()) (Left . PostgresError)
-
-findFirstError :: [ServerMessage] -> Maybe ErrorDesc
-findFirstError []                       = Nothing
-findFirstError (ErrorResponse desc : _) = Just desc
-findFirstError (_ : xs)                 = findFirstError xs
-
--- Collects all messages received before ReadyForQuery
-collectBeforeReadyForQuery :: Connection -> IO (Either Error [ServerMessage])
-collectBeforeReadyForQuery conn = do
-    msg <- readChan $ connOutAllChan conn
-    case msg of
-        Left e               -> pure $ Left e
-        Right ReadForQuery{} -> pure $ Right []
-        Right m              -> fmap (m:) <$> collectBeforeReadyForQuery conn
-
--- | Public
 describeStatement
     :: Connection
     -> B.ByteString
     -> IO (Either Error (V.Vector Oid, V.Vector FieldDescription))
 describeStatement conn stmt = do
-    sendEncode s $
+    sendEncode conn $
            encodeClientMessage (Parse sname (StatementSQL stmt) V.empty)
         <> encodeClientMessage (DescribeStatement sname)
         <> encodeClientMessage Sync
-    (parseMessages =<<) <$> collectBeforeReadyForQuery conn
+    (parseMessages =<<) <$> collectUntilReadyForQuery conn
   where
-    s = connRawConnection conn
     sname = StatementName ""
     parseMessages msgs = case msgs of
         [ParameterDescription params, NoData]
@@ -119,7 +103,21 @@ describeStatement conn stmt = do
         [ParameterDescription params, RowDescription fields]
             -> Right (params, fields)
         xs  -> Left . maybe
-             (DecodeError "Unexpected response on describe query")
+             (DecodeError "Unexpected response on a describe query")
              PostgresError
             $ findFirstError xs
+
+-- Collects all messages preceding `ReadyForQuery`
+collectUntilReadyForQuery :: Connection -> IO (Either Error [ServerMessage])
+collectUntilReadyForQuery conn = do
+    msg <- readChan $ connOutAllChan conn
+    case msg of
+        Left e               -> pure $ Left e
+        Right ReadForQuery{} -> pure $ Right []
+        Right m              -> fmap (m:) <$> collectUntilReadyForQuery conn
+
+findFirstError :: [ServerMessage] -> Maybe ErrorDesc
+findFirstError []                       = Nothing
+findFirstError (ErrorResponse desc : _) = Just desc
+findFirstError (_ : xs)                 = findFirstError xs
 

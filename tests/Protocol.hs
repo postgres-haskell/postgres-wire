@@ -35,7 +35,7 @@ testSimpleQuery = withConnectionAll $ \c -> do
             <> "SELECT * FROM a;"
             <> "DROP TABLE a;"
     sendMessage rawConn $ SimpleQuery statement
-    msgs <- collectBeforeReadyForQuery c
+    msgs <- collectUntilReadyForQuery c
     assertNoErrorResponse msgs
     assertContains msgs isCommandComplete "Command complete"
   where
@@ -60,7 +60,7 @@ testExtendedQuery = withConnectionAll $ \c -> do
     sendMessage rawConn Flush
     sendMessage rawConn Sync
 
-    msgs <- collectBeforeReadyForQuery c
+    msgs <- collectUntilReadyForQuery c
     assertNoErrorResponse msgs
     assertContains msgs isBindComplete "BindComplete"
     assertContains msgs isCloseComplete "CloseComplete"
@@ -91,7 +91,7 @@ testExtendedEmptyQuery :: IO ()
 testExtendedEmptyQuery = withConnectionAll $ \c -> do
     let query = Query "" V.empty Text Text NeverCache
     sendBatchAndSync c [query]
-    msgs <- collectBeforeReadyForQuery c
+    msgs <- collectUntilReadyForQuery c
     assertNoErrorResponse msgs
     assertContains msgs isEmptyQueryResponse "EmptyQueryResponse"
   where
@@ -109,7 +109,7 @@ testExtendedQueryNoData = withConnectionAll $ \c -> do
     sendMessage rawConn $ DescribeStatement sname
     sendMessage rawConn Sync
 
-    msgs <- collectBeforeReadyForQuery c
+    msgs <- collectUntilReadyForQuery c
     assertContains msgs isNoData "NoData"
   where
     isNoData NoData = True

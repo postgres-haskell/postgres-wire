@@ -58,7 +58,7 @@ testBatch = withConnection $ \c -> do
     let a = "5"
         b = "3"
     sendBatchAndSync c [makeQuery1 a, makeQuery1 b]
-    readReadyForQuery c
+    waitReadyForQuery c
 
     r1 <- readNextData c
     r2 <- readNextData c
@@ -77,7 +77,7 @@ testTwoBatches = withConnection $ \c -> do
 
     sendBatchAndSync c [makeQuery2 r1 r2]
     r <- readNextData c
-    readReadyForQuery c
+    waitReadyForQuery c
 
     BS.pack (show $ a + b) @=? fromMessage r
 
@@ -93,7 +93,7 @@ testMultipleBatches = withConnection $ replicateM_ 10 . assertSingleBatch
         a @=? fromMessage r1
         r2 <- readNextData c
         b @=? fromMessage r2
-        readReadyForQuery c
+        waitReadyForQuery c
 
 -- | Query is empty string.
 testEmptyQuery :: IO ()
@@ -110,7 +110,7 @@ assertQueryNoData :: Query -> IO ()
 assertQueryNoData q = withConnection $ \c -> do
     sendBatchAndSync c [q]
     r <- fromRight <$> readNextData c
-    readReadyForQuery c
+    waitReadyForQuery c
     DataMessage [] @=? r
 
 -- | Asserts that all the received data rows are in form (Right _)
@@ -144,7 +144,7 @@ testInvalidBatch = do
   where
     assertInvalidBatch desc qs = withConnection $ \c -> do
         sendBatchAndSync c qs
-        readReadyForQuery c
+        waitReadyForQuery c
         checkInvalidResult c $ length qs
 
 -- | Describes usual statement.
@@ -189,14 +189,14 @@ testSimpleAndExtendedQuery = withConnection $ \c -> do
         b = "2"
         d = "5"
     sendBatchAndSync c [ makeQuery1 a , makeQuery1 b]
-    readReadyForQuery c
+    waitReadyForQuery c
     checkRightResult c 2
 
     rs <- sendSimpleQuery c "SELECT * FROM generate_series(1, 10)"
     assertBool "Should be Right" $ isRight rs
 
     sendBatchAndSync c [makeQuery1 d]
-    fr <- readReadyForQuery c
+    fr <- waitReadyForQuery c
     assertBool "Should be Right" $ isRight fr
     r <- fromMessage <$> readNextData c
     r @=? d
@@ -209,7 +209,7 @@ testPreparedStatementCache  = withConnection $ \c -> do
     sendBatchAndSync c [ makeQuery1 (BS.pack (show a))
                         , makeQuery1 (BS.pack (show b))
                         , makeQuery2 (BS.pack (show a)) (BS.pack (show b))]
-    readReadyForQuery c
+    waitReadyForQuery c
     r1 <- fromMessage <$> readNextData c
     r2 <- fromMessage <$> readNextData c
     r3 <- fromMessage <$> readNextData c
@@ -226,12 +226,11 @@ testPreparedStatementCache  = withConnection $ \c -> do
 testLargeQuery :: IO ()
 testLargeQuery = withConnection $ \c -> do
     sendBatchAndSync c [Query largeStmt V.empty Text Text NeverCache ]
-    readReadyForQuery c
+    waitReadyForQuery c
     r <- readNextData c
     assertBool "Should be Right" $ isRight r
   where
     largeStmt = "select typname, typnamespace, typowner, typlen, typbyval,"
                 <> "typcategory, typispreferred, typisdefined, typdelim,"
                 <> "typrelid, typelem, typarray from pg_type "
-                <> "where typtypmod = -1 and typisdefined = true"
 

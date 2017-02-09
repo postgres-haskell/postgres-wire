@@ -358,8 +358,8 @@ sendMessage :: RawConnection -> ClientMessage -> IO ()
 sendMessage rawConn msg = void $
     rSend rawConn . runEncode $ encodeClientMessage msg
 
-sendEncode :: RawConnection -> Encode -> IO ()
-sendEncode rawConn = void . rSend rawConn . runEncode
+sendEncode :: Connection -> Encode -> IO ()
+sendEncode conn = void . rSend (connRawConnection conn) . runEncode
 
 withConnectionMode
     :: Connection -> ConnectionMode -> (Connection -> IO a) -> IO a

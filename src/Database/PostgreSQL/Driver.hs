@@ -20,7 +20,7 @@ module Database.PostgreSQL.Driver
     , sendBatchAndSync
     , sendBatchAndFlush
     , readNextData
-    , readReadyForQuery
+    , waitReadyForQuery
     , sendSimpleQuery
     , describeStatement
     -- * Errors
