@@ -1,6 +1,7 @@
 module Database.PostgreSQL.Driver.Error where
 
 import Data.ByteString (ByteString)
+import System.Socket (AddressInfoException, SocketException)
 
 import Database.PostgreSQL.Protocol.Types (ErrorDesc)
 
@@ -9,6 +10,7 @@ data Error
     = PostgresError ErrorDesc
     | DecodeError ByteString
     | AuthError AuthError
+    | SocketError SocketException
     | ImpossibleError ByteString
     deriving (Show)
 
@@ -16,6 +18,7 @@ data Error
 data AuthError
     = AuthNotSupported ByteString
     | AuthInvalidAddress
+    | AuthAddressException AddressInfoException
     deriving (Show)
 
 -- Helpers

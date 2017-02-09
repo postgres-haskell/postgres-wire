@@ -2,11 +2,12 @@
 module Database.PostgreSQL.Driver.RawConnection where
 
 import Control.Monad (void)
-import Control.Exception (bracketOnError)
+import Control.Exception (bracketOnError, try)
 import Safe (headMay)
 import Data.Monoid ((<>))
 import System.Socket (socket, AddressInfo(..), getAddressInfo, socketAddress,
-                      aiV4Mapped, Socket, connect, close, receive, send)
+                      aiV4Mapped, AddressInfoException, Socket, connect,
+                      close, receive, send)
 import System.Socket.Family.Inet (Inet)
 import System.Socket.Type.Stream (Stream)
 import System.Socket.Protocol.TCP (TCP)
@@ -32,7 +33,7 @@ unixPathFilename :: B.ByteString
 unixPathFilename = ".s.PGSQL."
 
 -- | Creates a raw connection and connects to a server.
--- Throws `SocketException`, `AddressException`.
+-- Throws `SocketException`.
 createRawConnection :: ConnectionSettings -> IO (Either Error RawConnection)
 createRawConnection settings
         | host == ""              = unixConnection defaultUnixPathDirectory
@@ -49,11 +50,14 @@ createRawConnection settings
         let mAddress = socketAddressUnixPath $ makeUnixPath dirPath
         createAndConnect mAddress (socket :: IO (Socket Unix Stream Unix))
 
-    tcpConnection = do
+    tcpConnection = fmap excToError . try $ do
         mAddress <- fmap socketAddress . headMay <$>
             (getAddressInfo (Just host) (Just portStr) aiV4Mapped
              :: IO [AddressInfo Inet Stream TCP])
         createAndConnect mAddress (socket :: IO (Socket Inet Stream TCP))
+
+    excToError (Left ex) = Left . AuthError $ AuthAddressException ex
+    excToError (Right v) = v
 
     portStr = BS.pack . show $ settingsPort settings
     host    = settingsHost settings
