@@ -8,6 +8,7 @@ import Control.Monad
 import Data.Traversable
 import Data.Foldable
 import Control.Applicative
+import Control.Exception
 import Data.IORef
 import Data.Monoid
 import Control.Concurrent (forkIO, killThread, ThreadId, threadDelay)
@@ -88,11 +89,15 @@ connectWith
     -> ServerMessageFilter
     -> IO (Either Error Connection)
 connectWith settings msgFilter =
-    createRawConnection settings >>=
-        either throwErrorInIO (\rawConn ->
-            authorize rawConn settings >>=
-                either throwErrorInIO (\params ->
-                    Right <$> buildConnection rawConn params msgFilter))
+    bracketOnError
+        (createRawConnection settings)
+        (either throwErrorInIO rClose)
+        (either throwErrorInIO performAuth)
+  where
+    performAuth rawConn = authorize rawConn settings >>= either
+            -- We should close connection on an authorization failure
+            (\e -> rClose rawConn >> throwErrorInIO e)
+            (\params -> Right <$> buildConnection rawConn params msgFilter)
 
 -- | Authorizes on the server and reads connection parameters.
 authorize
@@ -108,8 +113,8 @@ authorize rawConn settings = do
     readAuthResponse = do
         -- 4096 should be enough for the whole response from a server at
         -- the startup phase.
-        r <- rReceive rawConn 4096
-        case runDecode decodeAuthResponse r of
+        resp <- rReceive rawConn 4096
+        case runDecode decodeAuthResponse resp of
             Right (rest, r) -> case r of
                 AuthenticationOk ->
                     pure $ parseParameters rest
