@@ -91,7 +91,7 @@ connectWith
 connectWith settings msgFilter =
     bracketOnError
         (createRawConnection settings)
-        (either throwErrorInIO rClose)
+        (either (const $ pure ()) rClose)
         (either throwErrorInIO performAuth)
   where
     performAuth rawConn = authorize rawConn settings >>= either

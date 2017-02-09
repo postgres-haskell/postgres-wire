@@ -33,6 +33,7 @@ testDriver = testGroup "Driver"
     , testCase "SimpleQuery" testSimpleQuery
     , testCase "SimpleAndExtendedQuery" testSimpleAndExtendedQuery
     , testCase "PreparedStatementCache" testPreparedStatementCache
+    , testCase "Query with large response" testLargeQuery
     ]
 
 makeQuery1 :: B.ByteString -> Query
@@ -220,4 +221,17 @@ testPreparedStatementCache  = withConnection $ \c -> do
     size <- getCacheSize $ connStatementStorage c
     -- 2 different statements were send
     2 @=? size
+
+-- | Test that large responses are properly handled
+testLargeQuery :: IO ()
+testLargeQuery = withConnection $ \c -> do
+    sendBatchAndSync c [Query largeStmt V.empty Text Text NeverCache ]
+    readReadyForQuery c
+    r <- readNextData c
+    assertBool "Should be Right" $ isRight r
+  where
+    largeStmt = "select typname, typnamespace, typowner, typlen, typbyval,"
+                <> "typcategory, typispreferred, typisdefined, typdelim,"
+                <> "typrelid, typelem, typarray from pg_type "
+                <> "where typtypmod = -1 and typisdefined = true"
 
