@@ -118,6 +118,8 @@ describeStatement conn stmt = do
             -> Right (params, V.empty)
         [ParameterDescription params, RowDescription fields]
             -> Right (params, fields)
-        xs  -> maybe (error "Impossible happened") (Left . PostgresError )
-               $ findFirstError xs
+        xs  -> Left . maybe
+             (DecodeError "Unexpected response on describe query")
+             PostgresError
+            $ findFirstError xs
 
