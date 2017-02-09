@@ -2,6 +2,7 @@
 
 module Database.PostgreSQL.Protocol.Decoders
     ( decodeAuthResponse
+    , decodeHeader
     , decodeServerMessage
     -- * Helpers
     , parseServerVersion
@@ -43,40 +44,41 @@ decodeAuthResponse = do
                 _ -> fail "Unknown authentication response"
         _ -> fail "Invalid auth response"
 
-decodeServerMessage :: Decode ServerMessage
-decodeServerMessage = do
-    c <- getWord8
-    len <- getInt32BE
-    case chr $ fromIntegral c of
-        'K' -> BackendKeyData <$> (ServerProcessId <$> getInt32BE)
-                              <*> (ServerSecretKey <$> getInt32BE)
-        '2' -> pure BindComplete
-        '3' -> pure CloseComplete
-        'C' -> CommandComplete <$> (getByteString (fromIntegral $ len - 4)
-                                    >>= eitherToDecode . parseCommandResult)
-        'D' -> do
-            columnCount <- fromIntegral <$> getInt16BE
-            DataRow <$> V.replicateM columnCount decodeValue
-        'I' -> pure EmptyQueryResponse
-        'E' -> ErrorResponse <$>
-            (getByteString (fromIntegral $ len - 4) >>=
-                eitherToDecode . parseErrorDesc)
-        'n' -> pure NoData
-        'N' -> NoticeResponse <$>
-            (getByteString (fromIntegral $ len - 4) >>=
-                eitherToDecode . parseNoticeDesc)
-        'A' -> NotificationResponse <$> decodeNotification
-        't' -> do
-            paramCount <- fromIntegral <$> getInt16BE
-            ParameterDescription <$> V.replicateM paramCount
-                                     (Oid <$> getInt32BE)
-        'S' -> ParameterStatus <$> getByteStringNull <*> getByteStringNull
-        '1' -> pure ParseComplete
-        's' -> pure PortalSuspended
-        'Z' -> ReadForQuery <$> decodeTransactionStatus
-        'T' -> do
-            rowsCount <- fromIntegral <$> getInt16BE
-            RowDescription <$> V.replicateM rowsCount decodeFieldDescription
+decodeHeader :: Decode Header
+decodeHeader = Header <$> getWord8 <*>
+                (fromIntegral . subtract 4 <$> getInt32BE)
+
+decodeServerMessage :: Header -> Decode ServerMessage
+decodeServerMessage (Header c len) = case chr $ fromIntegral c of
+    'K' -> BackendKeyData <$> (ServerProcessId <$> getInt32BE)
+                          <*> (ServerSecretKey <$> getInt32BE)
+    '2' -> pure BindComplete
+    '3' -> pure CloseComplete
+    'C' -> CommandComplete <$> (getByteString len
+                                >>= eitherToDecode . parseCommandResult)
+    'D' -> do
+        columnCount <- fromIntegral <$> getInt16BE
+        DataRow <$> V.replicateM columnCount decodeValue
+    'I' -> pure EmptyQueryResponse
+    'E' -> ErrorResponse <$>
+        (getByteString len >>=
+            eitherToDecode . parseErrorDesc)
+    'n' -> pure NoData
+    'N' -> NoticeResponse <$>
+        (getByteString len >>=
+            eitherToDecode . parseNoticeDesc)
+    'A' -> NotificationResponse <$> decodeNotification
+    't' -> do
+        paramCount <- fromIntegral <$> getInt16BE
+        ParameterDescription <$> V.replicateM paramCount
+                                 (Oid <$> getInt32BE)
+    'S' -> ParameterStatus <$> getByteStringNull <*> getByteStringNull
+    '1' -> pure ParseComplete
+    's' -> pure PortalSuspended
+    'Z' -> ReadForQuery <$> decodeTransactionStatus
+    'T' -> do
+        rowsCount <- fromIntegral <$> getInt16BE
+        RowDescription <$> V.replicateM rowsCount decodeFieldDescription
 
 -- | Decodes a single data value. Length `-1` indicates a NULL column value.
 -- No value bytes follow in the NULL case.

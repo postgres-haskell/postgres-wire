@@ -185,7 +185,8 @@ parseParameters str = do
         (Left . DecodeError $ "Missing connection parameter " <> key ) Right
         . HM.lookup key
     go str dict | B.null str = Right dict
-                | otherwise = case runDecode decodeServerMessage str of
+                | otherwise = case runDecode
+                    (decodeHeader >>= decodeServerMessage) str of
         Right (rest, v) -> case v of
             ParameterStatus name value -> go rest $ HM.insert name value dict
             -- messages like `BackendData` not handled
@@ -203,6 +204,7 @@ close conn = do
     rClose $ connRawConnection conn
 
 
+-- TODO handle parser errors
 receiverThread
     :: ServerMessageFilter
     -> RawConnection
@@ -212,25 +214,34 @@ receiverThread
     -> NotificationHandler
     -> IO ()
 receiverThread msgFilter rawConn dataChan allChan modeRef ntfHandler =
-    receiveLoop  []
+    receiveLoop Nothing "" []
   where
-    receiveLoop :: [V.Vector (Maybe B.ByteString)] -> IO ()
-    receiveLoop acc = do
-        r <- rReceive rawConn 4096
-        -- print r
-        go r acc >>= receiveLoop
+    receiveLoop
+        :: Maybe Header
+        -> B.ByteString
+        -> [V.Vector (Maybe B.ByteString)] -> IO ()
+    -- Parsing header
+    receiveLoop Nothing bs acc
+        | B.length bs < 5 = do
+            r <- rReceive rawConn 4096
+            receiveLoop Nothing (bs <> r) acc
+        | otherwise =  case runDecode decodeHeader bs of
+            Left reason -> error reason
+            Right (rest, h) ->  receiveLoop (Just h) rest acc
+    -- Parsing body
+    receiveLoop (Just h@(Header _ len)) bs acc
+        | B.length bs < len = do
+            r <- rReceive rawConn 4096
+            receiveLoop (Just h) (bs <> r) acc
+        | otherwise = case runDecode (decodeServerMessage h) bs of
+            Left reason -> error reason
+            Right (rest, v) -> do
+                dispatchIfNotification v
+                when (msgFilter v) $ writeChan allChan v
+                mode <- readIORef modeRef
+                newAcc <- dispatch mode dataChan v acc
+                receiveLoop Nothing rest newAcc
 
-    go :: B.ByteString -> [V.Vector (Maybe B.ByteString)] -> IO [V.Vector (Maybe B.ByteString)]
-    go str acc = case runDecode decodeServerMessage str of
-        Right (rest, v) -> do
-            dispatchIfNotification v
-            when (msgFilter v) $ writeChan allChan v
-            mode <- readIORef modeRef
-            newAcc <- dispatch mode dataChan v acc
-            if B.null rest
-                then pure newAcc
-                else go rest newAcc
-        Left reason -> error reason
     dispatchIfNotification (NotificationResponse n) = ntfHandler n
     dispatchIfNotification  _ = pure ()
 

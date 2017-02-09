@@ -133,6 +133,12 @@ data ClientMessage
 data CancelRequest = CancelRequest !ServerProcessId !ServerSecretKey
     deriving (Show)
 
+-- | Header for ServerMessage, because we parse it separatly.
+-- Length contain only length of the message, not the whole response as
+-- PostgreSQL sends.
+data Header = Header {-# UNPACK #-} !Word8 {-# UNPACK #-} !Int
+    deriving (Show)
+
 -- | All possible responses from a server in usual query phase.
 data ServerMessage
     = BackendKeyData !ServerProcessId !ServerSecretKey
