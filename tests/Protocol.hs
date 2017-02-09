@@ -11,6 +11,7 @@ import Test.Tasty.HUnit
 import Database.PostgreSQL.Driver.Connection
 import Database.PostgreSQL.Driver.StatementStorage
 import Database.PostgreSQL.Driver.Query
+import Database.PostgreSQL.Driver.Error
 import Database.PostgreSQL.Protocol.Types
 
 import Connection
@@ -116,14 +117,18 @@ testExtendedQueryNoData = withConnectionAll $ \c -> do
 
 -- | Assert that list contains element satisfies predicat.
 assertContains
-    :: [ServerMessage] -> (ServerMessage -> Bool) -> String -> Assertion
-assertContains msgs f name
-    = assertBool ("Does not contain" ++ name) $ any f msgs
+    :: Either Error [ServerMessage]
+    -> (ServerMessage -> Bool)
+    -> String -> Assertion
+assertContains (Left e) _ _ = assertFailure $ "Got Error" ++ show e
+assertContains (Right msgs) f name =
+        assertBool ("Does not contain" ++ name) $ any f msgs
 
 -- | Assert there are on `ErrorResponse` in the list.
-assertNoErrorResponse :: [ServerMessage] -> Assertion
-assertNoErrorResponse
-    = assertBool "Occured ErrorResponse" . all (not . isError)
+assertNoErrorResponse :: Either Error [ServerMessage] -> Assertion
+assertNoErrorResponse (Left e) = assertFailure $ "Got Error" ++ show e
+assertNoErrorResponse (Right msgs) =
+    assertBool "Occured ErrorResponse" $ all (not . isError) msgs
   where
     isError (ErrorResponse _) = True
     isError _ = False

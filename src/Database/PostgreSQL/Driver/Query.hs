@@ -80,7 +80,7 @@ sendSimpleQuery conn q = withConnectionMode conn SimpleQueryMode $ \c -> do
 -- SHOULD BE called after every sended `Sync` message
 -- skips all messages except `ReadyForQuery`
 readReadyForQuery :: Connection -> IO (Either Error ())
-readReadyForQuery = fmap (liftError . findFirstError)
+readReadyForQuery = fmap (>>= (liftError . findFirstError))
                     . collectBeforeReadyForQuery
   where
     liftError = maybe (Right ()) (Left . PostgresError)
@@ -91,12 +91,13 @@ findFirstError (ErrorResponse desc : _) = Just desc
 findFirstError (_ : xs)                 = findFirstError xs
 
 -- Collects all messages received before ReadyForQuery
-collectBeforeReadyForQuery :: Connection -> IO [ServerMessage]
+collectBeforeReadyForQuery :: Connection -> IO (Either Error [ServerMessage])
 collectBeforeReadyForQuery conn = do
     msg <- readChan $ connOutAllChan conn
     case msg of
-        ReadForQuery{} -> pure []
-        m              -> (m:) <$> collectBeforeReadyForQuery conn
+        Left e               -> pure $ Left e
+        Right ReadForQuery{} -> pure $ Right []
+        Right m              -> fmap (m:) <$> collectBeforeReadyForQuery conn
 
 -- | Public
 describeStatement
@@ -108,7 +109,7 @@ describeStatement conn stmt = do
            encodeClientMessage (Parse sname (StatementSQL stmt) V.empty)
         <> encodeClientMessage (DescribeStatement sname)
         <> encodeClientMessage Sync
-    parseMessages <$> collectBeforeReadyForQuery conn
+    (parseMessages =<<) <$> collectBeforeReadyForQuery conn
   where
     s = connRawConnection conn
     sname = StatementName ""

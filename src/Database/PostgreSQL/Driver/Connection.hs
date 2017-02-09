@@ -37,7 +37,7 @@ data Connection = Connection
     -- channel only for Data messages
     , connOutDataChan       :: OutChan (Either Error DataMessage)
     -- channel for all the others messages
-    , connOutAllChan        :: OutChan ServerMessage
+    , connOutAllChan        :: OutChan (Either Error ServerMessage)
     , connStatementStorage  :: StatementStorage
     , connParameters        :: ConnectionParameters
     , connMode              :: IORef ConnectionMode
@@ -157,13 +157,13 @@ buildConnection rawConn connParams msgFilter = do
         receiverThread msgFilter rawConn inDataChan inAllChan modeRef
         defaultNotificationHandler
     pure Connection
-        { connRawConnection = rawConn
-        , connReceiverThread = tid
-        , connOutDataChan = outDataChan
-        , connOutAllChan = outAllChan
+        { connRawConnection    = rawConn
+        , connReceiverThread   = tid
+        , connOutDataChan      = outDataChan
+        , connOutAllChan       = outAllChan
         , connStatementStorage = storage
-        , connParameters = connParams
-        , connMode = modeRef
+        , connParameters       = connParams
+        , connMode             = modeRef
         }
 
 -- | Parses connection parameters.
@@ -203,13 +203,11 @@ close conn = do
     killThread $ connReceiverThread conn
     rClose $ connRawConnection conn
 
-
--- TODO handle parser errors
 receiverThread
     :: ServerMessageFilter
     -> RawConnection
     -> InChan (Either Error DataMessage)
-    -> InChan ServerMessage
+    -> InChan (Either Error ServerMessage)
     -> IORef ConnectionMode
     -> NotificationHandler
     -> IO ()
@@ -226,7 +224,7 @@ receiverThread msgFilter rawConn dataChan allChan modeRef ntfHandler =
             r <- rReceive rawConn 4096
             receiveLoop Nothing (bs <> r) acc
         | otherwise =  case runDecode decodeHeader bs of
-            Left reason -> error reason
+            Left reason -> pushDecodeError $ DecodeError $ BS.pack reason
             Right (rest, h) ->  receiveLoop (Just h) rest acc
     -- Parsing body
     receiveLoop (Just h@(Header _ len)) bs acc
@@ -234,16 +232,20 @@ receiverThread msgFilter rawConn dataChan allChan modeRef ntfHandler =
             r <- rReceive rawConn 4096
             receiveLoop (Just h) (bs <> r) acc
         | otherwise = case runDecode (decodeServerMessage h) bs of
-            Left reason -> error reason
+            Left reason -> pushDecodeError $ DecodeError $ BS.pack reason
             Right (rest, v) -> do
                 dispatchIfNotification v
-                when (msgFilter v) $ writeChan allChan v
+                when (msgFilter v) $ writeChan allChan $ Right v
                 mode <- readIORef modeRef
                 newAcc <- dispatch mode dataChan v acc
                 receiveLoop Nothing rest newAcc
 
     dispatchIfNotification (NotificationResponse n) = ntfHandler n
     dispatchIfNotification  _ = pure ()
+
+    pushDecodeError err = do
+        writeChan dataChan (Left err)
+        writeChan allChan (Left err)
 
 dispatch :: ConnectionMode -> DataDispatcher
 dispatch SimpleQueryMode   = dispatchSimple
@@ -334,13 +336,12 @@ sendEncode rawConn = void . rSend rawConn . runEncode
 withConnectionMode
     :: Connection -> ConnectionMode -> (Connection -> IO a) -> IO a
 withConnectionMode conn mode handler = do
+    let ref = connMode conn
     oldMode <- readIORef ref
-    atomicWriteIORef ref mode
-    r <- handler conn
-    atomicWriteIORef ref oldMode
-    pure r
-  where
-    ref = connMode conn
+    bracket_
+        (atomicWriteIORef ref mode)
+        (atomicWriteIORef ref oldMode)
+        (handler conn)
 
 -- Information about connection
 
