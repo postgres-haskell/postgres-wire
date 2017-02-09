@@ -73,6 +73,7 @@ test-suite postgres-wire-test
   main-is:             test.hs
   other-modules:       Connection
                      , Driver
+                     , Fault
                      , Protocol
                      , Misc
   build-depends:       base
