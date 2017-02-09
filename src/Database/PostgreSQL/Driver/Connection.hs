@@ -5,6 +5,7 @@ import qualified Data.ByteString.Char8 as BS(pack, unpack)
 import Data.ByteString.Lazy (toStrict)
 import Data.ByteString.Builder (Builder, toLazyByteString)
 import Control.Monad
+import System.Mem.Weak (Weak, deRefWeak)
 import Data.Traversable
 import Data.Foldable
 import Control.Applicative
@@ -12,7 +13,8 @@ import Control.Exception
 import GHC.Conc (labelThread)
 import Data.IORef
 import Data.Monoid
-import Control.Concurrent (forkIOWithUnmask, killThread, ThreadId, threadDelay)
+import Control.Concurrent (forkIOWithUnmask, killThread, ThreadId, threadDelay
+                          , mkWeakThreadId)
 import Data.Binary.Get ( runGetIncremental, pushChunk)
 import qualified Data.Binary.Get as BG (Decoder(..))
 import qualified Data.Vector as V
@@ -34,7 +36,7 @@ import Database.PostgreSQL.Driver.RawConnection
 -- | Public
 data Connection = Connection
     { connRawConnection     :: RawConnection
-    , connReceiverThread    :: ThreadId
+    , connReceiverThread    :: Weak ThreadId
     -- channel only for Data messages
     , connOutDataChan       :: OutChan (Either Error DataMessage)
     -- channel for all the others messages
@@ -157,21 +159,25 @@ buildConnection rawConn connParams msgFilter = do
     storage                   <- newStatementStorage
     modeRef                   <- newIORef defaultConnectionMode
 
-    tid <- mask_ $ forkIOWithUnmask $ \unmask ->
-        unmask (receiverThread msgFilter rawConn
+    -- shoulde be masked already by `bracketOnError`
+    let createReceiverThread = forkIOWithUnmask $ \unmask ->
+            unmask (receiverThread msgFilter rawConn
                 inDataChan inAllChan modeRef defaultNotificationHandler)
-        `catch` receiverOnException inDataChan inAllChan
-    labelThread tid "postgres-wire receiver"
+            `catch` receiverOnException inDataChan inAllChan
 
-    pure Connection
-        { connRawConnection    = rawConn
-        , connReceiverThread   = tid
-        , connOutDataChan      = outDataChan
-        , connOutAllChan       = outAllChan
-        , connStatementStorage = storage
-        , connParameters       = connParams
-        , connMode             = modeRef
-        }
+    createReceiverThread `bracketOnError` killThread $ \tid -> do
+        labelThread tid "postgres-wire receiver"
+        weakTid <- mkWeakThreadId tid
+
+        pure Connection
+            { connRawConnection    = rawConn
+            , connReceiverThread   = weakTid
+            , connOutDataChan      = outDataChan
+            , connOutAllChan       = outAllChan
+            , connStatementStorage = storage
+            , connParameters       = connParams
+            , connMode             = modeRef
+            }
 
 -- | Parses connection parameters.
 parseParameters :: B.ByteString -> Either Error ConnectionParameters
@@ -207,7 +213,7 @@ handshakeTls _ = pure ()
 -- TODO add termination
 close :: Connection -> IO ()
 close conn = do
-    killThread $ connReceiverThread conn
+    maybe (pure ()) killThread =<< deRefWeak (connReceiverThread conn)
     rClose $ connRawConnection conn
 
 -- | When thread receives unexpected exception or fihishes by
