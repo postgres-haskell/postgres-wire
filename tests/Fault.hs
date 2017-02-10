@@ -8,11 +8,17 @@ import Data.Either
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.Vector as V
+import System.Socket (SocketException(..))
+import System.Mem.Weak (Weak, deRefWeak)
+import Control.Concurrent (throwTo)
+import Control.Concurrent.Async
+import Control.Exception
 
 import Test.Tasty
 import Test.Tasty.HUnit
 
 import Database.PostgreSQL.Driver.Connection
+import Database.PostgreSQL.Driver.RawConnection
 import Database.PostgreSQL.Driver.StatementStorage
 import Database.PostgreSQL.Driver.Query
 import Database.PostgreSQL.Driver.Error
@@ -25,32 +31,56 @@ longQuery = Query "SELECT pg_sleep(5)" V.empty Text Text NeverCache
 
 testFaults :: TestTree
 testFaults = testGroup "Faults"
-    [ testCase "Single batch by waitReadyForQuery" testBatchReadyForQuery
-    , testCase "Single batch by readNextData " testBatchNextData
+    [ makeInterruptTest "Single batch by waitReadyForQuery"
+        testBatchReadyForQuery
+    , makeInterruptTest "Single batch by readNextData "
+        testBatchNextData
+    , makeInterruptTest "Simple Query"
+        testSimpleQuery
     ]
+  where
+    makeInterruptTest name action = testGroup name $
+        map (\(caseName, interruptAction) ->
+            testCase caseName $ action interruptAction)
+        [ ("close", close)
+        , ("close socket", closeSocket)
+        , ("socket exception", throwSocketException)
+        , ("other exception", throwOtherException)
+        ]
 
-testBatchReadyForQuery :: IO ()
-testBatchReadyForQuery = withConnection $ \c -> do
+testBatchReadyForQuery :: (Connection -> IO ()) -> IO ()
+testBatchReadyForQuery interruptAction = withConnection $ \c -> do
     sendBatchAndSync c [longQuery]
-    interruptConnection c
+    interruptAction c
     r <- waitReadyForQuery c
     assertUnexpected r
 
-testBatchNextData :: IO ()
-testBatchNextData  = withConnection $ \c -> do
+testBatchNextData :: (Connection -> IO ()) -> IO ()
+testBatchNextData interruptAction = withConnection $ \c -> do
     sendBatchAndSync c [longQuery]
-    interruptConnection c
+    interruptAction c
     r <- readNextData c
     assertUnexpected r
 
--- testSimpleQuery :: IO ()
--- testSimpleQuery = withConnection $ \c -> do
---     r <- sendSimpleQuery c "SELECT pg_sleep(5)"
---     interruptConnection c
---     assertUnexpected r
+testSimpleQuery :: (Connection -> IO ()) -> IO ()
+testSimpleQuery interruptAction = withConnection $ \c -> do
+    asyncVar <- async $ sendSimpleQuery c "SELECT pg_sleep(5)"
+    interruptAction c
+    r <- wait asyncVar
+    assertUnexpected r
 
-interruptConnection :: Connection -> IO ()
-interruptConnection = close
+closeSocket :: Connection -> IO ()
+closeSocket = rClose . connRawConnection
+
+throwSocketException :: Connection -> IO ()
+throwSocketException conn = do
+    let exc = SocketException 2
+    maybe (pure ()) (`throwTo` exc) =<< deRefWeak (connReceiverThread conn)
+
+throwOtherException :: Connection -> IO ()
+throwOtherException conn = do
+    let exc = PatternMatchFail "custom exc"
+    maybe (pure ()) (`throwTo` exc) =<< deRefWeak (connReceiverThread conn)
 
 assertUnexpected :: Show a => Either Error a -> Assertion
 assertUnexpected (Left (UnexpectedError _)) = pure ()
