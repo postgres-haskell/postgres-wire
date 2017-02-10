@@ -6,78 +6,65 @@ import Data.Word
 import Data.Int
 import Data.Tuple
 
+import Data.Store.Core
+
+import Foreign
 import Control.Monad
 import Control.Applicative
+import Data.ByteString (ByteString)
+import qualified Data.ByteString.Internal as B
 
--- Change to Ptr-based parser later
-newtype Decode a = Decode
-    { runDecode :: B.ByteString -> Either String (B.ByteString, a)}
+newtype Decode a = Decode (Peek a)
+    deriving (Functor, Applicative, Monad)
 
-instance Functor Decode where
-    fmap f p = Decode $ fmap (fmap f) . runDecode p
-    {-# INLINE fmap #-}
+runDecode :: Decode a -> B.ByteString -> Either String (B.ByteString, a)
+runDecode (Decode dec) bs =
+    let (offset,v ) = decodeExPortionWith dec bs
+    in Right (B.drop offset bs, v)
+{-# INLINE runDecode #-}
 
-instance Applicative Decode where
-    pure x = Decode $ \bs -> Right (bs, x)
-    {-# INLINE pure #-}
-
-    p1 <*> p2 = Decode $ \bs -> do
-         (bs2, f) <- runDecode p1 bs
-         (bs3, x) <- runDecode p2 bs2
-         pure (bs3, f x)
-    {-# INLINE (<*>) #-}
-
-instance Monad Decode where
-    return = pure
-    {-# INLINE return #-}
-
-    p >>= f = Decode $ \bs -> do
-        (bs2, x) <- runDecode p bs
-        runDecode (f x) bs2
-    {-# INLINE (>>=) #-}
-
-    fail = Decode . const . Left
-    {-# INLINE fail #-}
-
-checkLen :: B.ByteString -> Int -> Either String ()
-checkLen bs len | len > B.length bs = Left "too many bytes to read"
-                | otherwise = Right ()
-{-# INLINE checkLen #-}
-
-
-takeWhile :: (Word8 -> Bool) -> Decode B.ByteString
-takeWhile f = Decode $ \bs -> Right . swap $ B.span f bs
-{-# INLINE takeWhile #-}
+fixed :: Int -> (Ptr Word8 -> IO a) -> Decode a
+fixed len f = Decode . Peek $ \ps ptr -> do
+    !v <- f ptr
+    let !newPtr = ptr `plusPtr` len
+    return (newPtr, v)
+{-# INLINE fixed #-}
 
 getByte :: Decode Word8
-getByte = Decode $ \bs -> do
-    checkLen bs 1
-    Right (B.drop 1 bs, B.index bs 0)
+getByte = fixed 1 peek
 {-# INLINE getByte #-}
 
 getTwoBytes :: Decode (Word8, Word8)
-getTwoBytes = Decode $ \bs -> do
-    checkLen bs 2
-    Right (B.drop 2 bs, (B.index bs 0, B.index bs 1))
+getTwoBytes = fixed 2 $ \ptr -> do
+    b1 <- peek ptr
+    b2 <- peekByteOff ptr 1
+    return (b1, b2)
 {-# INLINE getTwoBytes #-}
 
 getFourBytes :: Decode (Word8, Word8, Word8, Word8)
-getFourBytes = Decode $ \bs -> do
-    checkLen bs 4
-    Right (B.drop 4 bs, (B.index bs 0, B.index bs 1, B.index bs 2, B.index bs 3))
+getFourBytes = fixed 4 $ \ptr -> do
+    b1 <- peek ptr
+    b2 <- peekByteOff ptr 1
+    b3 <- peekByteOff ptr 2
+    b4 <- peekByteOff ptr 3
+    return (b1, b2, b3, b4)
 {-# INLINE getFourBytes #-}
 
 -----------
 -- Public
 
 getByteString :: Int -> Decode B.ByteString
-getByteString len = Decode $ \bs -> do
-    checkLen bs len
-    Right . swap $ B.splitAt len bs
+getByteString len = Decode . Peek $ \ps ptr -> do
+    bs <- B.packCStringLen (castPtr ptr, len)
+    let !newPtr = ptr `plusPtr` len
+    return (newPtr, bs)
 {-# INLINE getByteString #-}
 
 getByteStringNull :: Decode B.ByteString
-getByteStringNull = takeWhile (/= 0) <* getWord8
+getByteStringNull = Decode . Peek $ \ps ptr -> do
+    bs <- B.packCString (castPtr ptr)
+    let !newPtr = ptr `plusPtr` (B.length bs + 1)
+    return (newPtr, bs)
 {-# INLINE getByteStringNull #-}
 
 getWord8 :: Decode Word8
