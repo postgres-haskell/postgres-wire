@@ -10,7 +10,7 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.Vector as V
 import System.Socket (SocketException(..))
 import System.Mem.Weak (Weak, deRefWeak)
-import Control.Concurrent (throwTo)
+import Control.Concurrent (throwTo, threadDelay)
 import Control.Concurrent.Async
 import Control.Exception
 
@@ -65,6 +65,8 @@ testBatchNextData interruptAction = withConnection $ \c -> do
 testSimpleQuery :: (Connection -> IO ()) -> IO ()
 testSimpleQuery interruptAction = withConnection $ \c -> do
     asyncVar <- async $ sendSimpleQuery c "SELECT pg_sleep(5)"
+    -- Make sure that query was sent.
+    threadDelay 1000000
     interruptAction c
     r <- wait asyncVar
     assertUnexpected r
