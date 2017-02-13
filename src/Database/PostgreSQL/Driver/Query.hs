@@ -37,14 +37,35 @@ sendBatchAndSync = sendBatchEndBy Sync
 sendSimpleQuery :: ConnectionCommon -> B.ByteString -> IO (Either Error ())
 sendSimpleQuery conn q = do
     sendMessage (connRawConnection conn) $ SimpleQuery (StatementSQL q)
-    pure $ pure ()
-    -- TODO
-    -- waitReadyForQuery conn
+    checkErrors <$> collectUntilReadyForQuery conn
+  where
+    checkErrors = either
+        (Left . ReceiverError)
+        (maybe (Right ()) (Left . PostgresError) . findFirstError)
+
+waitReadyForQuery :: Connection -> IO (Either Error ())
+waitReadyForQuery conn =
+    readChan (connOutChan conn) >>=
+    either (pure . Left . ReceiverError) handleDataMessage
+  where
+    handleDataMessage msg = case msg of
+        (DataError e) -> do
+            -- We should wait for ReadForQuery anyway.
+            waitReadyForQuery conn
+            pure . Left $ PostgresError e
+        (DataMessage _) -> error "throw incorrect usage here"
+        DataReady        -> pure $ Right ()
 
 -- | Public
--- TODO
--- readNextData :: Connection -> IO (Either Error DataRows)
--- readNextData conn = readChan $ connOutChan conn
+readNextData :: Connection -> IO (Either Error DataRows)
+readNextData conn =
+    readChan (connOutChan conn) >>=
+    either (pure . Left . ReceiverError) handleDataMessage
+  where
+    handleDataMessage msg = case msg of
+        (DataError e)      -> pure . Left $ PostgresError e
+        (DataMessage rows) -> pure . Right $ rows
+        DataReady           -> error "throw Incorrect usage here"
 
 -- Helper
 sendBatchEndBy :: ClientMessage -> Connection -> [Query] -> IO ()

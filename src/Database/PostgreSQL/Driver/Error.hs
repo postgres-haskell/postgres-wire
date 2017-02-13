@@ -9,6 +9,9 @@ import Database.PostgreSQL.Protocol.Types (ErrorDesc)
 -- All possible exceptions:
 --   SocketException
 --   DecodeException.
+--   IncorrectUsage.
+
+data IncorrectUsage = IncorrectUsage
 
 -- All possible errors.
 data Error

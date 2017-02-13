@@ -6,6 +6,7 @@ import Control.Monad
 import Data.Maybe
 import Data.Either
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.Vector as V
 
@@ -31,7 +32,6 @@ testDriver = testGroup "Driver"
     , testCase "Describe statement with no data" testDescribeStatementNoData
     , testCase "Describe empty statement" testDescribeStatementEmpty
     , testCase "SimpleQuery" testSimpleQuery
-    , testCase "SimpleAndExtendedQuery" testSimpleAndExtendedQuery
     , testCase "PreparedStatementCache" testPreparedStatementCache
     , testCase "Query with large response" testLargeQuery
     ]
@@ -48,8 +48,9 @@ fromRight :: Either e a -> a
 fromRight (Right v) = v
 fromRight _         = error "fromRight"
 
-fromMessage :: Either e DataMessage -> B.ByteString
-fromMessage (Right (DataMessage [v])) = fromJust $ V.head v
+fromMessage :: Either e DataRows -> B.ByteString
+-- TODO
+fromMessage (Right (DataRows bs)) = B.drop 9 $ BL.toStrict bs
 fromMessage _                     = error "from message"
 
 -- | Single batch.
@@ -111,16 +112,16 @@ assertQueryNoData q = withConnection $ \c -> do
     sendBatchAndSync c [q]
     r <- fromRight <$> readNextData c
     waitReadyForQuery c
-    DataMessage [] @=? r
+    DataRows "" @=? r
 
--- | Asserts that all the received data rows are in form (Right _)
+-- | Asserts that all the received data messages are in form (Right _)
 checkRightResult :: Connection -> Int -> Assertion
 checkRightResult conn 0 = pure ()
 checkRightResult conn n = readNextData conn >>=
     either (const $ assertFailure "Result is invalid")
            (const $ checkRightResult conn (n - 1))
 
--- | Asserts that (Left _) as result exists in the received data rows.
+-- | Asserts that (Left _) as result exists in the received data messages.
 checkInvalidResult :: Connection -> Int -> Assertion
 checkInvalidResult conn 0 = assertFailure "Result is right"
 checkInvalidResult conn n = readNextData conn >>=
@@ -149,7 +150,7 @@ testInvalidBatch = do
 
 -- | Describes usual statement.
 testDescribeStatement :: IO ()
-testDescribeStatement = withConnection $ \c -> do
+testDescribeStatement = withConnectionCommon $ \c -> do
     r <- describeStatement c $
                "select typname, typnamespace, typowner, typlen, typbyval,"
             <> "typcategory, typispreferred, typisdefined, typdelim, typrelid,"
@@ -159,21 +160,21 @@ testDescribeStatement = withConnection $ \c -> do
 
 -- | Describes statement that returns no data.
 testDescribeStatementNoData :: IO ()
-testDescribeStatementNoData = withConnection $ \c -> do
+testDescribeStatementNoData = withConnectionCommon $ \c -> do
     r <- fromRight <$> describeStatement c "SET client_encoding TO UTF8"
     assertBool "Should be empty" $ V.null (fst r)
     assertBool "Should be empty" $ V.null (snd r)
 
 -- | Describes statement that is empty string.
 testDescribeStatementEmpty :: IO ()
-testDescribeStatementEmpty = withConnection $ \c -> do
+testDescribeStatementEmpty = withConnectionCommon $ \c -> do
     r <- fromRight <$> describeStatement c ""
     assertBool "Should be empty" $ V.null (fst r)
     assertBool "Should be empty" $ V.null (snd r)
 
 -- | Query using simple query protocol.
 testSimpleQuery :: IO ()
-testSimpleQuery = withConnection $ \c -> do
+testSimpleQuery = withConnectionCommon $ \c -> do
     r <- sendSimpleQuery c $
                "DROP TABLE IF EXISTS a;"
             <> "CREATE TABLE a(v int);"
@@ -181,25 +182,6 @@ testSimpleQuery = withConnection $ \c -> do
             <> "SELECT * FROM a;"
             <> "DROP TABLE a;"
     assertBool "Should be Right" $ isRight r
-
--- | Simple and extended queries in a sinle connection.
-testSimpleAndExtendedQuery :: IO ()
-testSimpleAndExtendedQuery = withConnection $ \c -> do
-    let a = "7"
-        b = "2"
-        d = "5"
-    sendBatchAndSync c [ makeQuery1 a , makeQuery1 b]
-    waitReadyForQuery c
-    checkRightResult c 2
-
-    rs <- sendSimpleQuery c "SELECT * FROM generate_series(1, 10)"
-    assertBool "Should be Right" $ isRight rs
-
-    sendBatchAndSync c [makeQuery1 d]
-    fr <- waitReadyForQuery c
-    assertBool "Should be Right" $ isRight fr
-    r <- fromMessage <$> readNextData c
-    r @=? d
 
 -- | Test that cache of statements works.
 testPreparedStatementCache :: IO ()

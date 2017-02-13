@@ -48,7 +48,7 @@ data ServerVersion = ServerVersion !Word8 !Word8 !Word8 !ByteString
 -- It is guaranted that a single strict chunk of the `ByteString`
 -- contains integer number of `DataRow`s.
 newtype DataRows = DataRows BL.ByteString
-    deriving (Show)
+    deriving (Show, Eq)
 
 -- | Ad-hoc type only for data rows.
 data DataMessage
