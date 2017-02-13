@@ -10,7 +10,7 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.Vector as V
 import System.Socket (SocketException(..))
 import System.Mem.Weak (Weak, deRefWeak)
-import Control.Concurrent (throwTo, threadDelay)
+import Control.Concurrent (throwTo, threadDelay, killThread)
 import Control.Concurrent.Async
 import Control.Exception
 
@@ -35,6 +35,10 @@ testFaults = testGroup "Faults"
         testBatchNextData
     , makeInterruptTest "Simple Query"
         testSimpleQuery
+    , testGroup "Receiver thread died before"
+        [ testCase "Batch" testBatchReceiverKilledBefore
+        , testCase "SimpleQuery" testSimpleQueryReceiverKilledBefore
+        ]
     ]
   where
     makeInterruptTest name action = testGroup name $
@@ -62,6 +66,20 @@ testSimpleQuery interruptAction = withConnectionCommon $ \c -> do
     r <- wait asyncVar
     assertUnexpected r
 
+testBatchReceiverKilledBefore :: IO ()
+testBatchReceiverKilledBefore = withConnection $ \c -> do
+    killReceiverThread c
+    sendBatchAndSync c [longQuery]
+    r <- readNextData c
+    assertUnexpected r
+
+testSimpleQueryReceiverKilledBefore :: IO ()
+testSimpleQueryReceiverKilledBefore = withConnectionCommon $ \c -> do
+    killReceiverThread c
+    asyncVar <- async $ sendSimpleQuery c "SELECT pg_sleep(5)"
+    r <- wait asyncVar
+    assertUnexpected r
+
 closeSocket :: AbsConnection c -> IO ()
 closeSocket = rClose . connRawConnection
 
@@ -74,6 +92,10 @@ throwOtherException :: AbsConnection c -> IO ()
 throwOtherException conn = do
     let exc = PatternMatchFail "custom exc"
     maybe (pure ()) (`throwTo` exc) =<< deRefWeak (connReceiverThread conn)
+
+killReceiverThread :: AbsConnection c -> IO ()
+killReceiverThread conn =
+    maybe (pure ()) killThread =<< deRefWeak (connReceiverThread conn)
 
 assertUnexpected :: Show a => Either Error a -> Assertion
 assertUnexpected (Left _) = pure ()
