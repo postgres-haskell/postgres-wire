@@ -9,7 +9,7 @@ import System.Socket (socket, AddressInfo(..), getAddressInfo, socketAddress,
                       aiV4Mapped, AddressInfoException, Socket, connect,
                       close, receive, send)
 import System.Socket.Family.Inet (Inet)
-import System.Socket.Type.Stream (Stream)
+import System.Socket.Type.Stream (Stream, sendAll)
 import System.Socket.Protocol.TCP (TCP)
 import System.Socket.Family.Unix (Unix, socketAddressUnixPath)
 import qualified Data.ByteString as B
@@ -66,11 +66,11 @@ createRawConnection settings
         let dir = B.reverse . B.dropWhile (== 47) $ B.reverse dirPath
         in dir <> "/" <> unixPathFilename <> portStr
 
-constructRawConnection :: Socket f t p -> RawConnection
+constructRawConnection :: Socket f Stream p -> RawConnection
 constructRawConnection s = RawConnection
     { rFlush = pure ()
     , rClose = close s
-    , rSend = \msg -> void $ send s msg mempty
+    , rSend = \msg -> void $ sendAll s msg mempty
     , rReceive = \n -> receive s n mempty
     }
 
