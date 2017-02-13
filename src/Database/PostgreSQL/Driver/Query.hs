@@ -53,7 +53,7 @@ waitReadyForQuery conn =
             -- We should wait for ReadForQuery anyway.
             waitReadyForQuery conn
             pure . Left $ PostgresError e
-        (DataMessage _) -> error "throw incorrect usage here"
+        (DataMessage _) -> error "incorrect usage waitReadyForQuery"
         DataReady        -> pure $ Right ()
 
 -- | Public
@@ -65,7 +65,7 @@ readNextData conn =
     handleDataMessage msg = case msg of
         (DataError e)      -> pure . Left $ PostgresError e
         (DataMessage rows) -> pure . Right $ rows
-        DataReady           -> error "throw Incorrect usage here"
+        DataReady           -> error "incorrect usage readNextData"
 
 -- Helper
 sendBatchEndBy :: ClientMessage -> Connection -> [Query] -> IO ()

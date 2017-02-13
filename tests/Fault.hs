@@ -31,9 +31,7 @@ longQuery = Query "SELECT pg_sleep(5)" V.empty Text Text NeverCache
 
 testFaults :: TestTree
 testFaults = testGroup "Faults"
-    [ makeInterruptTest "Single batch by waitReadyForQuery"
-        testBatchReadyForQuery
-    , makeInterruptTest "Single batch by readNextData "
+    [ makeInterruptTest "Single batch by readNextData "
         testBatchNextData
     , makeInterruptTest "Simple Query"
         testSimpleQuery
@@ -48,13 +46,6 @@ testFaults = testGroup "Faults"
         , ("other exception", throwOtherException)
         ]
 
-testBatchReadyForQuery :: (Connection -> IO ()) -> IO ()
-testBatchReadyForQuery interruptAction = withConnection $ \c -> do
-    sendBatchAndSync c [longQuery]
-    interruptAction c
-    r <- waitReadyForQuery c
-    assertUnexpected r
-
 testBatchNextData :: (Connection -> IO ()) -> IO ()
 testBatchNextData interruptAction = withConnection $ \c -> do
     sendBatchAndSync c [longQuery]
@@ -62,30 +53,30 @@ testBatchNextData interruptAction = withConnection $ \c -> do
     r <- readNextData c
     assertUnexpected r
 
-testSimpleQuery :: (Connection -> IO ()) -> IO ()
-testSimpleQuery interruptAction = withConnection $ \c -> do
+testSimpleQuery :: (ConnectionCommon -> IO ()) -> IO ()
+testSimpleQuery interruptAction = withConnectionCommon $ \c -> do
     asyncVar <- async $ sendSimpleQuery c "SELECT pg_sleep(5)"
     -- Make sure that query was sent.
-    threadDelay 1000000
+    threadDelay 500000
     interruptAction c
     r <- wait asyncVar
     assertUnexpected r
 
-closeSocket :: Connection -> IO ()
+closeSocket :: AbsConnection c -> IO ()
 closeSocket = rClose . connRawConnection
 
-throwSocketException :: Connection -> IO ()
+throwSocketException :: AbsConnection c -> IO ()
 throwSocketException conn = do
     let exc = SocketException 2
     maybe (pure ()) (`throwTo` exc) =<< deRefWeak (connReceiverThread conn)
 
-throwOtherException :: Connection -> IO ()
+throwOtherException :: AbsConnection c -> IO ()
 throwOtherException conn = do
     let exc = PatternMatchFail "custom exc"
     maybe (pure ()) (`throwTo` exc) =<< deRefWeak (connReceiverThread conn)
 
 assertUnexpected :: Show a => Either Error a -> Assertion
-assertUnexpected (Left (UnexpectedError _)) = pure ()
+assertUnexpected (Left _) = pure ()
 assertUnexpected (Right v) = assertFailure $
     "Expected Unexpected error, but got " ++ show v
 

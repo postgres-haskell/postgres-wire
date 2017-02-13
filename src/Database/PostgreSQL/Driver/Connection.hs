@@ -2,6 +2,7 @@ module Database.PostgreSQL.Driver.Connection where
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BS(pack, unpack)
+import qualified Data.ByteString.Lazy as BL
 import Data.ByteString.Lazy (toStrict)
 import Data.ByteString.Builder (Builder, toLazyByteString)
 import Control.Monad
@@ -69,8 +70,8 @@ defaultNotificationHandler = const $ pure ()
 type DataDispatcher
     =  InDataChan
     -> ServerMessage
-    -> [V.Vector (Maybe B.ByteString)]
-    -> IO [V.Vector (Maybe B.ByteString)]
+    -> [B.ByteString]
+    -> IO [B.ByteString]
 
 -- | Public
 connect :: ConnectionSettings -> IO (Either Error Connection)
@@ -233,7 +234,7 @@ receiverThread rawConn dataChan = receiveLoop Nothing "" []
     receiveLoop
         :: Maybe Header
         -> B.ByteString
-        -> [V.Vector (Maybe B.ByteString)] -> IO ()
+        -> [B.ByteString] -> IO ()
     -- Parsing header
     receiveLoop Nothing bs acc
         | B.length bs < 5 = do
@@ -302,25 +303,31 @@ receiverThreadCommon rawConn chan msgFilter ntfHandler =
 dispatchExtended :: DataDispatcher
 dispatchExtended dataChan message acc = case message of
     -- Command is completed, return the result
-    -- CommandComplete _ -> do
-    --     writeChan dataChan . Right $ reverse acc
-    --     pure []
-    -- -- note that data rows go in reversed order
-    -- DataRow row -> pure (row:acc)
-    -- -- PostgreSQL sends this if query string was empty and datarows should be
-    -- -- empty, but anyway we return data collected in `acc`.
-    -- EmptyQueryResponse -> do
-    --     writeChan dataChan . Right $ reverse acc
-    --     pure []
-    -- -- On ErrorResponse we should discard all the collected datarows.
-    -- ErrorResponse desc -> do
-    --     writeChan dataChan $ Left $ PostgresError desc
-    --     pure []
-    -- -- We does not handled `PortalSuspended` because we always send `execute`
-    -- -- with no limit.
-    -- -- PortalSuspended -> pure acc
+    CommandComplete _ -> do
+        writeChan dataChan . Right . DataMessage . DataRows . BL.fromChunks
+            $ reverse acc
+        pure []
+    -- note that data rows go in reversed order
+    DataRow row -> pure (row:acc)
+    -- PostgreSQL sends this if query string was empty and datarows should be
+    -- empty, but anyway we return data collected in `acc`.
+    EmptyQueryResponse -> do
+        writeChan dataChan . Right . DataMessage . DataRows . BL.fromChunks
+            $ reverse acc
+        pure []
+    -- On ErrorResponse we should discard all the collected datarows.
+    ErrorResponse desc -> do
+        writeChan dataChan $ Right $ DataError desc
+        pure []
+    -- to know when command processing is finished
+    ReadForQuery{}         -> do
+        writeChan dataChan $ Right DataReady
+        pure acc
+    -- We does not handled `PortalSuspended` because we always send `execute`
+    -- with no limit.
+    -- PortalSuspended -> pure acc
 
-    -- -- do nothing on other messages
+    -- do nothing on other messages
     _ -> pure acc
 
 -- | For testings purposes.

@@ -50,7 +50,8 @@ fromRight _         = error "fromRight"
 
 fromMessage :: Either e DataRows -> B.ByteString
 -- TODO
-fromMessage (Right (DataRows bs)) = B.drop 9 $ BL.toStrict bs
+-- 5 bytes -header, 2 bytes -count, 4 bytes - length
+fromMessage (Right (DataRows bs)) = B.drop 11 $ BL.toStrict bs
 fromMessage _                     = error "from message"
 
 -- | Single batch.
@@ -59,10 +60,10 @@ testBatch = withConnection $ \c -> do
     let a = "5"
         b = "3"
     sendBatchAndSync c [makeQuery1 a, makeQuery1 b]
-    waitReadyForQuery c
 
     r1 <- readNextData c
     r2 <- readNextData c
+    waitReadyForQuery c
     a @=? fromMessage r1
     b @=? fromMessage r2
 
@@ -145,7 +146,6 @@ testInvalidBatch = do
   where
     assertInvalidBatch desc qs = withConnection $ \c -> do
         sendBatchAndSync c qs
-        waitReadyForQuery c
         checkInvalidResult c $ length qs
 
 -- | Describes usual statement.
@@ -191,10 +191,10 @@ testPreparedStatementCache  = withConnection $ \c -> do
     sendBatchAndSync c [ makeQuery1 (BS.pack (show a))
                         , makeQuery1 (BS.pack (show b))
                         , makeQuery2 (BS.pack (show a)) (BS.pack (show b))]
-    waitReadyForQuery c
     r1 <- fromMessage <$> readNextData c
     r2 <- fromMessage <$> readNextData c
     r3 <- fromMessage <$> readNextData c
+    waitReadyForQuery c
 
     BS.pack (show a) @=? r1
     BS.pack (show b) @=? r2
@@ -208,8 +208,8 @@ testPreparedStatementCache  = withConnection $ \c -> do
 testLargeQuery :: IO ()
 testLargeQuery = withConnection $ \c -> do
     sendBatchAndSync c [Query largeStmt V.empty Text Text NeverCache ]
-    waitReadyForQuery c
     r <- readNextData c
+    waitReadyForQuery c
     assertBool "Should be Right" $ isRight r
   where
     largeStmt = "select typname, typnamespace, typowner, typlen, typbyval,"
