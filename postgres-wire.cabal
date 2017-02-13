@@ -92,15 +92,17 @@ test-suite postgres-wire-test
 
 benchmark postgres-wire-bench
   type: exitcode-stdio-1.0
-  main-is: Bench.hs
   hs-source-dirs:
       bench
+  main-is: Bench.hs
+  other-modules:       Encoders
   build-depends:       base
                      , postgres-wire
                      , bytestring
                      , vector
                      , criterion
-  ghc-options: -O2 -threaded -rtsopts -with-rtsopts=-N1 -with-rtsopts=-s -with-rtsopts=-qg
+                     , deepseq
+  ghc-options: -O2 -threaded -rtsopts -with-rtsopts=-s 
   default-language:    Haskell2010
   default-extensions:  
     OverloadedStrings

@@ -4,50 +4,59 @@ import Data.ByteString.Lazy (toStrict)
 import Data.ByteString.Builder (toLazyByteString)
 import Data.ByteString (ByteString)
 import Data.Vector as V(fromList, empty)
+import Data.IORef
+import Control.Concurrent
+import Control.Applicative
+import Control.Monad
+import Data.Monoid
 
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.Encoders
-import Database.PostgreSQL.Protocol.Store
+import Database.PostgreSQL.Driver
 import Criterion.Main
 
-main = defaultMain
-    [ bgroup "Protocol encoding"
-        [ benchMessage "Flush" Flush
-        , benchMessage "Execute" $ Execute (PortalName "") noLimitToReceive
-        , benchParse0
-        , benchParse3
-        , benchParse5
-        , benchParse10
-        , benchBind0
-        , benchBind3
-        , benchBind5
-        , benchBind10
-        ]
-    ]
+main = benchMultiPw
 
-benchMessage :: String -> ClientMessage -> Benchmark
-benchMessage name = bench name . nf encodeMessage
+benchRequests :: IO c -> (c -> IO a) -> IO ()
+benchRequests connectAction queryAction = do
+    rs <- replicateM 8 newThread
+    threadDelay 10000000
+    traverse (killThread . snd) rs
+    s <- sum <$> traverse (readIORef . fst) rs
+    print $ "Requests: " ++ show s
   where
-    encodeMessage = runEncode . encodeClientMessage
+    newThread  = do
+        ref <- newIORef 0 :: IO (IORef Word)
+        c <- connectAction
+        tid <- forkIO $ forever $ do
+            queryAction c
+            modifyIORef' ref (+1)
+        pure (ref, tid)
 
-parseMessage :: Int -> ClientMessage
-parseMessage n = Parse (StatementName "53") (StatementSQL
-    "SELECT type, name, a, b, c FROM table_name WHERE name LIKE $1 AND a > $2")
-    (V.fromList $ replicate n (Oid 23))
+benchMultiPw :: IO ()
+benchMultiPw = benchRequests createConnection $ \c -> do
+            sendBatchAndSync c [q]
+            readNextData c
+            waitReadyForQuery c
+  where
+    q = Query largeStmt V.empty Binary Binary AlwaysCache
+    largeStmt = "select typname, typnamespace, typowner, typlen, typbyval,"
+                <> "typcategory, typispreferred, typisdefined, typdelim,"
+                <> "typrelid, typelem, typarray from pg_type "
 
-bindMessage :: Int -> ClientMessage
-bindMessage n = Bind (PortalName "") (StatementName "31") Binary
-    (V.fromList $ replicate n "aaaaaaaaaaaaaaaaaaa") Binary
+-- Connection
+-- | Creates connection with default filter.
+createConnection :: IO Connection
+createConnection = getConnection <$> connect defaultSettings
 
-benchParse0, benchParse3, benchParse5, benchParse10 :: Benchmark
-benchParse0 = benchMessage "Parse 0" $ parseMessage 0
-benchParse3 = benchMessage "Parse 3" $ parseMessage 3
-benchParse5 = benchMessage "Parse 5" $ parseMessage 5
-benchParse10 = benchMessage "Parse 10" $ parseMessage 10
+getConnection :: Either Error Connection -> Connection
+getConnection (Left e) = error $ "Connection error " ++ show e
+getConnection (Right c) = c
 
-benchBind0, benchBind3, benchBind5, benchBind10 :: Benchmark
-benchBind0 = benchMessage "Bind 0" $ bindMessage 0
-benchBind3 = benchMessage "Bind 3" $ bindMessage 3
-benchBind5 = benchMessage "Bind 5" $ bindMessage 5
-benchBind10 = benchMessage "Bind 10" $ bindMessage 10
+defaultSettings = defaultConnectionSettings
+    { settingsHost     = "localhost"
+    , settingsDatabase = "travis_test"
+    , settingsUser     = "postgres"
+    , settingsPassword = ""
+    }
 
