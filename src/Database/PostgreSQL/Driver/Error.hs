@@ -6,16 +6,25 @@ import System.Socket (AddressInfoException)
 
 import Database.PostgreSQL.Protocol.Types (ErrorDesc)
 
+-- All possible exceptions:
+--   SocketException
+--   DecodeException.
+
 -- All possible errors.
 data Error
+    -- Error sended by PostgreSQL, not application error.
     = PostgresError ErrorDesc
-    | DecodeError ByteString
     | AuthError AuthError
-    | ImpossibleError ByteString
-    | UnexpectedError SomeException
+    -- Receiver errors that may occur in receiver thread. When such error occur
+    -- it means that receiver thread died.
+    | ReceiverError ReceiverException
+    deriving (Show)
+
+newtype ReceiverException = ReceiverException SomeException
     deriving (Show)
 
 -- Errors that might occur at authorization phase.
+-- Non-recoverable.
 data AuthError
     = AuthNotSupported ByteString
     | AuthInvalidAddress

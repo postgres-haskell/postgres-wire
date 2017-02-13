@@ -50,6 +50,14 @@ data ServerVersion = ServerVersion !Word8 !Word8 !Word8 !ByteString
 newtype DataRows = DataRows BL.ByteString
     deriving (Show)
 
+-- | Ad-hoc type only for data rows.
+data DataMessage
+    = DataError ErrorDesc
+    | DataMessage DataRows
+    -- ReadyForQuery received.
+    | DataReady
+    deriving (Show)
+
 -- | Maximum number of rows to return, if portal contains a query that
 -- returns rows (ignored otherwise). Zero denotes "no limit".
 newtype RowsToReceive = RowsToReceive Int32 deriving (Show)

@@ -3,6 +3,7 @@ module Database.PostgreSQL.Driver.Query where
 import Control.Concurrent.Chan.Unagi
 import Data.Foldable
 import Data.Monoid
+import Data.Bifunctor
 import qualified Data.Vector as V
 import qualified Data.ByteString as B
 
@@ -36,20 +37,14 @@ sendBatchAndSync = sendBatchEndBy Sync
 sendSimpleQuery :: ConnectionCommon -> B.ByteString -> IO (Either Error ())
 sendSimpleQuery conn q = do
     sendMessage (connRawConnection conn) $ SimpleQuery (StatementSQL q)
-    waitReadyForQuery conn
+    pure $ pure ()
+    -- TODO
+    -- waitReadyForQuery conn
 
 -- | Public
-readNextData :: Connection -> IO (Either Error DataRows)
-readNextData conn = readChan $ connOutChan conn
-
--- | Public
--- MUST BE called after every sended `Sync` message
--- discards all messages preceding `ReadyForQuery`
-waitReadyForQuery :: ConnectionCommon -> IO (Either Error ())
-waitReadyForQuery = fmap (>>= (liftError . findFirstError))
-                    . collectUntilReadyForQuery
-  where
-    liftError = maybe (Right ()) (Left . PostgresError)
+-- TODO
+-- readNextData :: Connection -> IO (Either Error DataRows)
+-- readNextData conn = readChan $ connOutChan conn
 
 -- Helper
 sendBatchEndBy :: ClientMessage -> Connection -> [Query] -> IO ()
@@ -94,7 +89,7 @@ describeStatement conn stmt = do
            encodeClientMessage (Parse sname (StatementSQL stmt) V.empty)
         <> encodeClientMessage (DescribeStatement sname)
         <> encodeClientMessage Sync
-    (parseMessages =<<) <$> collectUntilReadyForQuery conn
+    (parseMessages =<<) . first ReceiverError <$> collectUntilReadyForQuery conn
   where
     sname = StatementName ""
     parseMessages msgs = case msgs of
@@ -103,14 +98,15 @@ describeStatement conn stmt = do
         [ParameterDescription params, RowDescription fields]
             -> Right (params, fields)
         xs  -> Left . maybe
-             (DecodeError "Unexpected response on a describe query")
+            -- todo handle error
+             (error "handle decode error")
              PostgresError
             $ findFirstError xs
 
 -- Collects all messages preceding `ReadyForQuery`
 collectUntilReadyForQuery
     :: ConnectionCommon
-    -> IO (Either Error [ServerMessage])
+    -> IO (Either ReceiverException [ServerMessage])
 collectUntilReadyForQuery conn = do
     msg <- readChan $ connOutChan conn
     case msg of

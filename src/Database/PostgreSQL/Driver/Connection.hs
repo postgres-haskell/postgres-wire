@@ -33,19 +33,19 @@ import Database.PostgreSQL.Driver.RawConnection
 
 -- | Public
 -- Connection parametrized by message type in chan.
-data AbsConnection msg = AbsConnection
+data AbsConnection mt = AbsConnection
     { connRawConnection     :: RawConnection
     , connReceiverThread    :: Weak ThreadId
     , connStatementStorage  :: StatementStorage
     , connParameters        :: ConnectionParameters
-    , connOutChan           :: OutChan msg
+    , connOutChan           :: OutChan (Either ReceiverException mt)
     }
 
-type Connection       = AbsConnection (Either Error DataRows)
-type ConnectionCommon = AbsConnection (Either Error ServerMessage)
+type Connection       = AbsConnection DataMessage
+type ConnectionCommon = AbsConnection ServerMessage
 
-type InDataChan = InChan (Either Error DataRows)
-type InAllChan  = InChan (Either Error ServerMessage)
+type InDataChan = InChan (Either ReceiverException DataMessage)
+type InAllChan  = InChan (Either ReceiverException ServerMessage)
 
 -- | Parameters of the current connection.
 -- We store only the parameters that cannot change after startup.
@@ -77,7 +77,6 @@ connect :: ConnectionSettings -> IO (Either Error Connection)
 connect settings = connectWith settings $ \rawConn params ->
     buildConnection rawConn params
         (receiverThread rawConn)
-        (Left . UnexpectedError)
 
 connectCommon
     :: ConnectionSettings
@@ -94,7 +93,6 @@ connectCommon' settings msgFilter = connectWith settings $ \rawConn params ->
     buildConnection rawConn params
         (\chan -> receiverThreadCommon rawConn chan
                     msgFilter defaultNotificationHandler)
-        (Left . UnexpectedError)
 
 connectWith
     :: ConnectionSettings
@@ -142,7 +140,9 @@ authorize rawConn settings = do
                     throwAuthErrorInIO $ AuthNotSupported "GSS"
                 AuthErrorResponse desc    ->
                     throwErrorInIO $ PostgresError desc
-            Left reason -> throwErrorInIO . DecodeError $ BS.pack reason
+            Left reason -> error "handle error here"
+                -- TODO handle errors
+                -- throwErrorInIO . DecodeError $ BS.pack reason
 
     performPasswordAuth password = do
         sendMessage rawConn $ PasswordMessage password
@@ -158,18 +158,15 @@ buildConnection
     :: RawConnection
     -> ConnectionParameters
     -- action in receiver thread
-    -> (InChan c -> IO ())
-    -- transform exception to message to inform the other thread
-    -- about unexpected error
-    -> (SomeException -> c)
+    -> (InChan (Either ReceiverException c) -> IO ())
     -> IO (AbsConnection c)
-buildConnection rawConn connParams receiverAction transformExc = do
+buildConnection rawConn connParams receiverAction = do
     (inChan, outChan)         <- newChan
     storage                   <- newStatementStorage
 
     let createReceiverThread = mask_ $ forkIOWithUnmask $ \unmask ->
             unmask (receiverAction inChan)
-            `catch` (writeChan inChan . transformExc)
+            `catch` (writeChan inChan . Left . ReceiverException)
 
     --  When receiver thread dies by any unexpected exception, than message
     --  would be written in its chan.
@@ -189,7 +186,8 @@ buildConnection rawConn connParams receiverAction transformExc = do
 parseParameters :: B.ByteString -> Either Error ConnectionParameters
 parseParameters str = do
     dict <- go str HM.empty
-    serverVersion    <- maybe (Left $ DecodeError "server version") Right .
+    -- TODO handle error
+    serverVersion    <- maybe (error "handle error") Right .
                         parseServerVersion =<< lookupKey "server_version" dict
     serverEncoding   <- lookupKey "server_encoding" dict
     integerDatetimes <- parseIntegerDatetimes <$>
@@ -201,7 +199,8 @@ parseParameters str = do
         }
   where
     lookupKey key = maybe
-        (Left . DecodeError $ "Missing connection parameter " <> key ) Right
+        -- TODO
+        (error "handle errors") Right
         . HM.lookup key
     go str dict | B.null str = Right dict
                 | otherwise = case runDecode
@@ -210,7 +209,9 @@ parseParameters str = do
             ParameterStatus name value -> go rest $ HM.insert name value dict
             -- messages like `BackendData` not handled
             _                          -> go rest dict
-        Left reason -> Left . DecodeError $ BS.pack reason
+        Left reason -> error "handle error here"
+            -- TODO
+            -- Left . DecodeError $ BS.pack reason
 
 handshakeTls :: RawConnection ->  IO ()
 handshakeTls _ = pure ()

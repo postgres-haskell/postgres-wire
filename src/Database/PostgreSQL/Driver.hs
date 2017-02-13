@@ -19,8 +19,9 @@ module Database.PostgreSQL.Driver
     , CachePolicy(..)
     , sendBatchAndSync
     , sendBatchAndFlush
-    , readNextData
-    , waitReadyForQuery
+    -- TODO
+    -- , readNextData
+    -- , waitReadyForQuery
     , sendSimpleQuery
     , describeStatement
     -- * Errors
