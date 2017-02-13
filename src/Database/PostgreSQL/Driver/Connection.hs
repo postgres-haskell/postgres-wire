@@ -229,7 +229,10 @@ receiverThread
     :: RawConnection
     -> InDataChan
     -> IO ()
-receiverThread rawConn dataChan = receiveLoop Nothing "" []
+receiverThread rawConn dataChan =
+    loopExtractDataRows
+        (rReceive rawConn 4096)
+        (writeChan dataChan . Right)
   where
     receiveLoop
         :: Maybe Header

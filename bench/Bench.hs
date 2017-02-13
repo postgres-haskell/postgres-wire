@@ -35,7 +35,16 @@ benchRequests connectAction queryAction = do
 
 benchMultiPw :: IO ()
 benchMultiPw = benchRequests createConnection $ \c -> do
-            sendBatchAndSync c [q]
+            sendBatchAndSync c [q, q, q, q, q, q, q, q, q, q]
+            readNextData c
+            readNextData c
+            readNextData c
+            readNextData c
+            readNextData c
+            readNextData c
+            readNextData c
+            readNextData c
+            readNextData c
             readNextData c
             waitReadyForQuery c
   where
