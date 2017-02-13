@@ -33,19 +33,19 @@ sendBatchAndSync :: Connection -> [Query] -> IO ()
 sendBatchAndSync = sendBatchEndBy Sync
 
 -- | Public
-sendSimpleQuery :: Connection -> B.ByteString -> IO (Either Error ())
-sendSimpleQuery conn q = withConnectionMode conn SimpleQueryMode $ \c -> do
-    sendMessage (connRawConnection c) $ SimpleQuery (StatementSQL q)
-    waitReadyForQuery c
+sendSimpleQuery :: ConnectionCommon -> B.ByteString -> IO (Either Error ())
+sendSimpleQuery conn q = do
+    sendMessage (connRawConnection conn) $ SimpleQuery (StatementSQL q)
+    waitReadyForQuery conn
 
 -- | Public
-readNextData :: Connection -> IO (Either Error DataMessage)
-readNextData conn = readChan $ connOutDataChan conn
+readNextData :: Connection -> IO (Either Error DataRows)
+readNextData conn = readChan $ connOutChan conn
 
 -- | Public
 -- MUST BE called after every sended `Sync` message
 -- discards all messages preceding `ReadyForQuery`
-waitReadyForQuery :: Connection -> IO (Either Error ())
+waitReadyForQuery :: ConnectionCommon -> IO (Either Error ())
 waitReadyForQuery = fmap (>>= (liftError . findFirstError))
                     . collectUntilReadyForQuery
   where
@@ -86,7 +86,7 @@ constructBatch conn = fmap fold . traverse constructSingle
 
 -- | Public
 describeStatement
-    :: Connection
+    :: ConnectionCommon
     -> B.ByteString
     -> IO (Either Error (V.Vector Oid, V.Vector FieldDescription))
 describeStatement conn stmt = do
@@ -108,9 +108,11 @@ describeStatement conn stmt = do
             $ findFirstError xs
 
 -- Collects all messages preceding `ReadyForQuery`
-collectUntilReadyForQuery :: Connection -> IO (Either Error [ServerMessage])
+collectUntilReadyForQuery
+    :: ConnectionCommon
+    -> IO (Either Error [ServerMessage])
 collectUntilReadyForQuery conn = do
-    msg <- readChan $ connOutAllChan conn
+    msg <- readChan $ connOutChan conn
     case msg of
         Left e               -> pure $ Left e
         Right ReadForQuery{} -> pure $ Right []

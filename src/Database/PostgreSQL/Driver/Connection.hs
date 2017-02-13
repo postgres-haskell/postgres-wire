@@ -15,8 +15,6 @@ import Data.IORef
 import Data.Monoid
 import Control.Concurrent (forkIOWithUnmask, killThread, ThreadId, threadDelay
                           , mkWeakThreadId)
-import Data.Binary.Get ( runGetIncremental, pushChunk)
-import qualified Data.Binary.Get as BG (Decoder(..))
 import qualified Data.Vector as V
 import Control.Concurrent.Chan.Unagi
 import qualified Data.HashMap.Strict as HM
@@ -34,19 +32,19 @@ import Database.PostgreSQL.Driver.Error
 import Database.PostgreSQL.Driver.RawConnection
 
 -- | Public
-data Connection = Connection
+-- Connection parametrized by message type in chan.
+data AbsConnection msg = AbsConnection
     { connRawConnection     :: RawConnection
     , connReceiverThread    :: Weak ThreadId
-    -- channel only for Data messages
-    , connOutDataChan       :: OutChan (Either Error DataMessage)
-    -- channel for all the others messages
-    , connOutAllChan        :: OutChan (Either Error ServerMessage)
     , connStatementStorage  :: StatementStorage
     , connParameters        :: ConnectionParameters
-    , connMode              :: IORef ConnectionMode
+    , connOutChan           :: OutChan msg
     }
 
-type InDataChan = InChan (Either Error DataMessage)
+type Connection       = AbsConnection (Either Error DataRows)
+type ConnectionCommon = AbsConnection (Either Error ServerMessage)
+
+type InDataChan = InChan (Either Error DataRows)
 type InAllChan  = InChan (Either Error ServerMessage)
 
 -- | Parameters of the current connection.
@@ -61,14 +59,6 @@ data ConnectionParameters = ConnectionParameters
     , paramIntegerDatetimes :: Bool
     } deriving (Show)
 
-data ConnectionMode
-    -- | In this mode, all result's data is ignored
-    = SimpleQueryMode
-    -- | Usual mode
-    | ExtendedQueryMode
-
-defaultConnectionMode :: ConnectionMode
-defaultConnectionMode = ExtendedQueryMode
 
 type ServerMessageFilter = ServerMessage -> Bool
 type NotificationHandler = Notification -> IO ()
@@ -82,19 +72,35 @@ type DataDispatcher
     -> [V.Vector (Maybe B.ByteString)]
     -> IO [V.Vector (Maybe B.ByteString)]
 
-data DataMessage = DataMessage [V.Vector (Maybe B.ByteString)]
-    deriving (Show, Eq)
-
-
 -- | Public
 connect :: ConnectionSettings -> IO (Either Error Connection)
-connect settings = connectWith settings defaultFilter
+connect settings = connectWith settings $ \rawConn params ->
+    buildConnection rawConn params
+        (receiverThread rawConn)
+        (Left . UnexpectedError)
+
+connectCommon
+    :: ConnectionSettings
+    -> IO (Either Error ConnectionCommon)
+connectCommon settings = connectCommon' settings defaultFilter
+
+-- | Like 'connectCommon', but allows specify a message filter.
+-- Useful for testing.
+connectCommon'
+    :: ConnectionSettings
+    -> ServerMessageFilter
+    -> IO (Either Error ConnectionCommon)
+connectCommon' settings msgFilter = connectWith settings $ \rawConn params ->
+    buildConnection rawConn params
+        (\chan -> receiverThreadCommon rawConn chan
+                    msgFilter defaultNotificationHandler)
+        (Left . UnexpectedError)
 
 connectWith
     :: ConnectionSettings
-    -> ServerMessageFilter
-    -> IO (Either Error Connection)
-connectWith settings msgFilter =
+    -> (RawConnection -> ConnectionParameters -> IO (AbsConnection c))
+    -> IO (Either Error (AbsConnection c))
+connectWith settings buildAction =
     bracketOnError
         (createRawConnection settings)
         (either (const $ pure ()) rClose)
@@ -103,7 +109,7 @@ connectWith settings msgFilter =
     performAuth rawConn = authorize rawConn settings >>= either
             -- We should close connection on an authorization failure
             (\e -> rClose rawConn >> throwErrorInIO e)
-            (\params -> Right <$> buildConnection rawConn params msgFilter)
+            (\params -> Right <$> buildAction rawConn params)
 
 -- | Authorizes on the server and reads connection parameters.
 authorize
@@ -151,32 +157,32 @@ authorize rawConn settings = do
 buildConnection
     :: RawConnection
     -> ConnectionParameters
-    -> ServerMessageFilter
-    -> IO Connection
-buildConnection rawConn connParams msgFilter = do
-    (inDataChan, outDataChan) <- newChan
-    (inAllChan, outAllChan)   <- newChan
+    -- action in receiver thread
+    -> (InChan c -> IO ())
+    -- transform exception to message to inform the other thread
+    -- about unexpected error
+    -> (SomeException -> c)
+    -> IO (AbsConnection c)
+buildConnection rawConn connParams receiverAction transformExc = do
+    (inChan, outChan)         <- newChan
     storage                   <- newStatementStorage
-    modeRef                   <- newIORef defaultConnectionMode
 
-    -- shoulde be masked already by `bracketOnError`
-    let createReceiverThread = forkIOWithUnmask $ \unmask ->
-            unmask (receiverThread msgFilter rawConn
-                inDataChan inAllChan modeRef defaultNotificationHandler)
-            `catch` receiverOnException inDataChan inAllChan
+    let createReceiverThread = mask_ $ forkIOWithUnmask $ \unmask ->
+            unmask (receiverAction inChan)
+            `catch` (writeChan inChan . transformExc)
 
+    --  When receiver thread dies by any unexpected exception, than message
+    --  would be written in its chan.
     createReceiverThread `bracketOnError` killThread $ \tid -> do
         labelThread tid "postgres-wire receiver"
         weakTid <- mkWeakThreadId tid
 
-        pure Connection
+        pure AbsConnection
             { connRawConnection    = rawConn
             , connReceiverThread   = weakTid
-            , connOutDataChan      = outDataChan
-            , connOutAllChan       = outAllChan
             , connStatementStorage = storage
             , connParameters       = connParams
-            , connMode             = modeRef
+            , connOutChan          = outChan
             }
 
 -- | Parses connection parameters.
@@ -211,24 +217,17 @@ handshakeTls _ = pure ()
 
 -- | Public
 -- TODO add termination
-close :: Connection -> IO ()
+close :: AbsConnection c -> IO ()
 close conn = do
     maybe (pure ()) killThread =<< deRefWeak (connReceiverThread conn)
     rClose $ connRawConnection conn
 
--- | When thread receives unexpected exception or fihishes by
--- any reason, than it writes Error to BOTH chans to prevent other threads
--- blocking on reading from these chans.
+-- | Any exception prevents thread from future work
 receiverThread
-    :: ServerMessageFilter
-    -> RawConnection
+    :: RawConnection
     -> InDataChan
-    -> InAllChan
-    -> IORef ConnectionMode
-    -> NotificationHandler
     -> IO ()
-receiverThread msgFilter rawConn dataChan allChan modeRef ntfHandler =
-    receiveLoop Nothing "" []
+receiverThread rawConn dataChan = receiveLoop Nothing "" []
   where
     receiveLoop
         :: Maybe Header
@@ -240,8 +239,10 @@ receiverThread msgFilter rawConn dataChan allChan modeRef ntfHandler =
             r <- rReceive rawConn 4096
             receiveLoop Nothing (bs <> r) acc
         | otherwise =  case runDecode decodeHeader bs of
-            Left reason -> reportReceiverError dataChan allChan
-                            $ DecodeError $ BS.pack reason
+            -- TODO handle error
+            Left reason -> undefined
+            -- reportReceiverError dataChan allChan
+            --                 $ DecodeError $ BS.pack reason
             Right (rest, h) ->  receiveLoop (Just h) rest acc
     -- Parsing body
     receiveLoop (Just h@(Header _ len)) bs acc
@@ -249,63 +250,76 @@ receiverThread msgFilter rawConn dataChan allChan modeRef ntfHandler =
             r <- rReceive rawConn 4096
             receiveLoop (Just h) (bs <> r) acc
         | otherwise = case runDecode (decodeServerMessage h) bs of
-            Left reason -> reportReceiverError dataChan allChan
-                            $ DecodeError $ BS.pack reason
+            -- TODO handle error
+            Left reason -> undefined
+                -- reportReceiverError dataChan allChan
+                --             $ DecodeError $ BS.pack reason
             Right (rest, v) -> do
-                dispatchIfNotification v ntfHandler
-                when (msgFilter v) $ writeChan allChan $ Right v
-                mode <- readIORef modeRef
-                newAcc <- dispatch mode dataChan v acc
+                newAcc <- dispatchExtended dataChan v acc
                 receiveLoop Nothing rest newAcc
 
-dispatchIfNotification :: ServerMessage -> NotificationHandler -> IO ()
-dispatchIfNotification msg handler = case msg of
-    NotificationResponse n -> handler n
-    _                      -> pure ()
-
--- | Exception handler for receiver thread.
--- Called only in masked state.
-receiverOnException :: InDataChan -> InAllChan -> SomeException -> IO ()
-receiverOnException dataChan allChan exc =
-    reportReceiverError dataChan allChan $ UnexpectedError exc
-
--- | Reporting about any unexpected error to the thread than reads from chans.
-reportReceiverError :: InDataChan -> InAllChan -> Error -> IO ()
-reportReceiverError dataChan allChan err = do
-    writeChan dataChan (Left err)
-    writeChan allChan (Left err)
-
-dispatch :: ConnectionMode -> DataDispatcher
-dispatch SimpleQueryMode   = dispatchSimple
-dispatch ExtendedQueryMode = dispatchExtended
-
--- | Dispatcher for the SimpleQuery mode.
-dispatchSimple :: DataDispatcher
-dispatchSimple dataChan message = pure
+-- | Any exception prevents thread from future work
+receiverThreadCommon
+    :: RawConnection
+    -> InAllChan
+    -> ServerMessageFilter
+    -> NotificationHandler
+    -> IO ()
+receiverThreadCommon rawConn chan msgFilter ntfHandler =
+    receiveLoop Nothing ""
+  where
+    receiveLoop :: Maybe Header -> B.ByteString ->  IO ()
+    -- Parsing header
+    receiveLoop Nothing bs
+        | B.length bs < 5 = do
+            r <- rReceive rawConn 4096
+            receiveLoop Nothing (bs <> r)
+        | otherwise =  case runDecode decodeHeader bs of
+            -- TODO handle error
+            Left reason -> undefined
+            -- reportReceiverError dataChan allChan
+            --                 $ DecodeError $ BS.pack reason
+            Right (rest, h) ->  receiveLoop (Just h) rest
+    -- Parsing body
+    receiveLoop (Just h@(Header _ len)) bs
+        | B.length bs < len = do
+            r <- rReceive rawConn 4096
+            receiveLoop (Just h) (bs <> r)
+        | otherwise = case runDecode (decodeServerMessage h) bs of
+            -- TODO handle error
+            Left reason -> undefined
+                -- reportReceiverError dataChan allChan
+                --             $ DecodeError $ BS.pack reason
+            Right (rest, v) -> do
+                dispatchIfNotification v ntfHandler
+                when (msgFilter v) $ writeChan chan $ Right v
+                receiveLoop Nothing rest
+    dispatchIfNotification (NotificationResponse ntf) handler = handler ntf
+    dispatchIfNotification _ _ = pure ()
 
 -- | Dispatcher for the ExtendedQuery mode.
 dispatchExtended :: DataDispatcher
 dispatchExtended dataChan message acc = case message of
     -- Command is completed, return the result
-    CommandComplete _ -> do
-        writeChan dataChan . Right . DataMessage $ reverse acc
-        pure []
-    -- note that data rows go in reversed order
-    DataRow row -> pure (row:acc)
-    -- PostgreSQL sends this if query string was empty and datarows should be
-    -- empty, but anyway we return data collected in `acc`.
-    EmptyQueryResponse -> do
-        writeChan dataChan . Right . DataMessage $ reverse acc
-        pure []
-    -- On ErrorResponse we should discard all the collected datarows.
-    ErrorResponse desc -> do
-        writeChan dataChan $ Left $ PostgresError desc
-        pure []
-    -- We does not handled `PortalSuspended` because we always send `execute`
-    -- with no limit.
-    -- PortalSuspended -> pure acc
+    -- CommandComplete _ -> do
+    --     writeChan dataChan . Right $ reverse acc
+    --     pure []
+    -- -- note that data rows go in reversed order
+    -- DataRow row -> pure (row:acc)
+    -- -- PostgreSQL sends this if query string was empty and datarows should be
+    -- -- empty, but anyway we return data collected in `acc`.
+    -- EmptyQueryResponse -> do
+    --     writeChan dataChan . Right $ reverse acc
+    --     pure []
+    -- -- On ErrorResponse we should discard all the collected datarows.
+    -- ErrorResponse desc -> do
+    --     writeChan dataChan $ Left $ PostgresError desc
+    --     pure []
+    -- -- We does not handled `PortalSuspended` because we always send `execute`
+    -- -- with no limit.
+    -- -- PortalSuspended -> pure acc
 
-    -- do nothing on other messages
+    -- -- do nothing on other messages
     _ -> pure acc
 
 -- | For testings purposes.
@@ -358,27 +372,18 @@ sendMessage :: RawConnection -> ClientMessage -> IO ()
 sendMessage rawConn msg = void $
     rSend rawConn . runEncode $ encodeClientMessage msg
 
-sendEncode :: Connection -> Encode -> IO ()
+sendEncode :: AbsConnection c -> Encode -> IO ()
 sendEncode conn = void . rSend (connRawConnection conn) . runEncode
 
-withConnectionMode
-    :: Connection -> ConnectionMode -> (Connection -> IO a) -> IO a
-withConnectionMode conn mode handler = do
-    let ref = connMode conn
-    oldMode <- readIORef ref
-    bracket_
-        (atomicWriteIORef ref mode)
-        (atomicWriteIORef ref oldMode)
-        (handler conn)
 
 -- Information about connection
 
-getServerVersion :: Connection -> ServerVersion
+getServerVersion :: AbsConnection c -> ServerVersion
 getServerVersion = paramServerVersion . connParameters
 
-getServerEncoding :: Connection -> B.ByteString
+getServerEncoding :: AbsConnection c -> B.ByteString
 getServerEncoding = paramServerEncoding . connParameters
 
-getIntegerDatetimes :: Connection -> Bool
+getIntegerDatetimes :: AbsConnection c -> Bool
 getIntegerDatetimes = paramIntegerDatetimes . connParameters
 

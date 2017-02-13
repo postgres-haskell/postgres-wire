@@ -56,9 +56,10 @@ decodeServerMessage (Header c len) = case chr $ fromIntegral c of
     '3' -> pure CloseComplete
     'C' -> CommandComplete <$> (getByteString len
                                 >>= eitherToDecode . parseCommandResult)
+    -- Dont parse data rows here.
     'D' -> do
-        columnCount <- fromIntegral <$> getInt16BE
-        DataRow <$> V.replicateM columnCount decodeValue
+        getByteString len
+        pure DataRow
     'I' -> pure EmptyQueryResponse
     'E' -> ErrorResponse <$>
         (getByteString len >>=

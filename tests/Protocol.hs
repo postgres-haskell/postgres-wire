@@ -26,7 +26,7 @@ testProtocolMessages = testGroup "Protocol messages"
 
 -- | Tests multi-command simple query.
 testSimpleQuery :: IO ()
-testSimpleQuery = withConnectionAll $ \c -> do
+testSimpleQuery = withConnectionCommonAll $ \c -> do
     let rawConn = connRawConnection c
         statement = StatementSQL $
                "DROP TABLE IF EXISTS a;"
@@ -44,7 +44,7 @@ testSimpleQuery = withConnectionAll $ \c -> do
 
 -- Tests all messages that are permitted in extended query protocol.
 testExtendedQuery :: IO ()
-testExtendedQuery = withConnectionAll $ \c -> do
+testExtendedQuery = withConnectionCommonAll $ \c -> do
     let rawConn = connRawConnection c
         sname = StatementName "statement"
         pname = PortalName "portal"
@@ -76,7 +76,7 @@ testExtendedQuery = withConnectionAll $ \c -> do
     isCloseComplete         _                        = False
     isParseComplete         ParseComplete            = True
     isParseComplete         _                        = False
-    isDataRow               (DataRow _)              = True
+    isDataRow               DataRow                  = True
     isDataRow               _                        = False
     isCommandComplete       (CommandComplete _)      = True
     isCommandComplete       _                        = False
@@ -88,9 +88,16 @@ testExtendedQuery = withConnectionAll $ \c -> do
 -- | Tests that PostgreSQL returns `EmptyQueryResponse` when a query
 -- string is empty.
 testExtendedEmptyQuery :: IO ()
-testExtendedEmptyQuery = withConnectionAll $ \c -> do
-    let query = Query "" V.empty Text Text NeverCache
-    sendBatchAndSync c [query]
+testExtendedEmptyQuery = withConnectionCommonAll $ \c -> do
+    let rawConn   = connRawConnection c
+        sname     = StatementName "statement"
+        pname     = PortalName ""
+        statement = StatementSQL ""
+    sendMessage rawConn $ Parse sname statement V.empty
+    sendMessage rawConn $
+        Bind pname sname Text V.empty Text
+    sendMessage rawConn $ Execute pname noLimitToReceive
+    sendMessage rawConn Sync
     msgs <- collectUntilReadyForQuery c
     assertNoErrorResponse msgs
     assertContains msgs isEmptyQueryResponse "EmptyQueryResponse"
@@ -101,7 +108,7 @@ testExtendedEmptyQuery = withConnectionAll $ \c -> do
 -- | Tests that `desribe statement` receives NoData when a statement
 -- has no data in the result.
 testExtendedQueryNoData :: IO ()
-testExtendedQueryNoData = withConnectionAll $ \c -> do
+testExtendedQueryNoData = withConnectionCommonAll $ \c -> do
     let rawConn   = connRawConnection c
         sname     = StatementName "statement"
         statement = StatementSQL "SET client_encoding to UTF8"

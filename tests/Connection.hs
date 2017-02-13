@@ -5,14 +5,19 @@ import Database.PostgreSQL.Driver.Connection
 import Database.PostgreSQL.Driver.Error
 import Database.PostgreSQL.Driver.Settings
 
--- | Creates connection with default filter.
+-- | Creates a connection.
 withConnection :: (Connection -> IO a) -> IO a
 withConnection = bracket (getConnection <$> connect defaultSettings) close
 
+-- | Creates a common connection.
+withConnectionCommon :: (ConnectionCommon -> IO a) -> IO a
+withConnectionCommon = bracket
+    (getConnection <$> connectCommon defaultSettings) close
+
 -- | Creates connection than collects all server messages in chan.
-withConnectionAll :: (Connection -> IO a) -> IO a
-withConnectionAll = bracket
-    (getConnection <$> connectWith defaultSettings filterAllowedAll) close
+withConnectionCommonAll :: (ConnectionCommon -> IO a) -> IO a
+withConnectionCommonAll = bracket
+    (getConnection <$> connectCommon' defaultSettings filterAllowedAll) close
 
 defaultSettings = defaultConnectionSettings
     { settingsHost     = "localhost"
@@ -21,7 +26,7 @@ defaultSettings = defaultConnectionSettings
     , settingsPassword = ""
     }
 
-getConnection :: Either Error Connection -> Connection
+getConnection :: Either Error (AbsConnection c)-> AbsConnection c
 getConnection (Left e) = error $ "Connection error " ++ show e
 getConnection (Right c) = c
 

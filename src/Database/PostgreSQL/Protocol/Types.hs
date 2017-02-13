@@ -13,7 +13,8 @@ module Database.PostgreSQL.Protocol.Types where
 import Data.Word (Word32, Word8)
 import Data.Int (Int32, Int16)
 import Data.Hashable (Hashable)
-import Data.ByteString as B(ByteString, null)
+import Data.ByteString as B(ByteString)
+import qualified Data.ByteString.Lazy as BL(ByteString)
 import Data.Vector (Vector)
 
 -- Common
@@ -42,6 +43,12 @@ newtype ServerSecretKey  = ServerSecretKey Int32 deriving (Show)
 --   10.1beta2  - ServerVersion 10 1 0 "beta2"
 data ServerVersion = ServerVersion !Word8 !Word8 !Word8 !ByteString
     deriving (Eq, Show)
+
+-- | Helper types that contains only raw DataRows messages.
+-- It is guaranted that a single strict chunk of the `ByteString`
+-- contains integer number of `DataRow`s.
+newtype DataRows = DataRows BL.ByteString
+    deriving (Show)
 
 -- | Maximum number of rows to return, if portal contains a query that
 -- returns rows (ignored otherwise). Zero denotes "no limit".
@@ -145,7 +152,8 @@ data ServerMessage
     | BindComplete
     | CloseComplete
     | CommandComplete CommandResult
-    | DataRow !(Vector (Maybe ByteString))  -- Nothing shoulde be recognized as NULL
+    -- DataRows lays in separate data type
+    | DataRow
     | EmptyQueryResponse
     | ErrorResponse !ErrorDesc
     | NoData
