@@ -17,6 +17,8 @@ import Database.PostgreSQL.Driver.Connection
 import Database.PostgreSQL.Driver.StatementStorage
 import Database.PostgreSQL.Driver.Query
 import Database.PostgreSQL.Protocol.Types
+import Database.PostgreSQL.Protocol.Store.Decode
+import Database.PostgreSQL.Protocol.Decoders
 
 import Connection
 
@@ -34,6 +36,7 @@ testDriver = testGroup "Driver"
     , testCase "SimpleQuery" testSimpleQuery
     , testCase "PreparedStatementCache" testPreparedStatementCache
     , testCase "Query with large response" testLargeQuery
+    , testCase "Correct datarows" testCorrectDatarows
     ]
 
 makeQuery1 :: B.ByteString -> Query
@@ -215,4 +218,26 @@ testLargeQuery = withConnection $ \c -> do
     largeStmt = "select typname, typnamespace, typowner, typlen, typbyval,"
                 <> "typcategory, typispreferred, typisdefined, typdelim,"
                 <> "typrelid, typelem, typarray from pg_type "
+
+testCorrectDatarows :: IO ()
+testCorrectDatarows = withConnection $ \c -> do
+    let stmt = "SELECT * FROM generate_series(1, 1000)"
+    sendBatchAndSync c [Query stmt V.empty Text Text NeverCache]
+    r <- readNextData c
+    case r of
+        Left e -> error $ show e
+        Right (DataRows rows) -> do
+            let bs = BL.toStrict rows
+            map (BS.pack . show ) [1 .. 1000] @=? go bs
+  where
+    go bs | B.null bs = []
+          | otherwise = case runDecode decodeDataRow bs of
+              Left e -> error $ show e
+              Right (rest, v) -> v : go rest
+    -- TODO Right parser later
+    decodeDataRow :: Decode B.ByteString
+    decodeDataRow = do
+        decodeHeader
+        getInt16BE
+        getByteString . fromIntegral =<< getInt32BE
 
