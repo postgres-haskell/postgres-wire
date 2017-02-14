@@ -35,112 +35,110 @@ import Database.PostgreSQL.Protocol.Store.Decode
 foreign import ccall unsafe "static pw_utils.h scan_datarows" c_scan_datarows
     :: Ptr CChar -> CSize -> Ptr CInt -> IO CSize
 
+data ScanRowResult = ScanRowResult
+    {-# UNPACK #-} !B.ByteString  -- chunk of datarows
+    {-# UNPACK #-} !B.ByteString  -- rest
+    {-# UNPACK #-} !Int           -- reason code
+
+{-# INLINE scanDataRows #-}
+scanDataRows :: B.ByteString -> IO ScanRowResult
+scanDataRows bs =
+    alloca $ \reasonPtr ->
+        B.unsafeUseAsCStringLen bs $ \(ptr, len) -> do
+            offset <- fromIntegral <$>
+                        c_scan_datarows ptr (fromIntegral len) reasonPtr
+            reason <- peek reasonPtr
+            let (ch, rest) = B.splitAt offset bs
+            pure $ ScanRowResult ch rest $ fromIntegral reason
+
 -- Extracts DataRows
 --
-data ExtractorResult = NeedMore | OtherHeader
-
 loopExtractDataRows
     :: (B.ByteString -> IO B.ByteString) -- read more action
-    -> (DataMessage -> IO ()) -- callback on every DataMessage
+    -> (DataMessage -> IO ())            -- callback on every DataMessage
     -> IO ()
 loopExtractDataRows readMoreAction callback = go "" ""
   where
     go :: B.ByteString -> BL.ByteString -> IO ()
-    -- header size
-    go !bs !acc
+    go bs acc
         | B.length bs < 5 = readMoreAndGo bs acc
         | otherwise = do
-            -- print "Main branch"
-            (offset, r) <- alloca $ \reasonPtr ->
-                B.unsafeUseAsCStringLen bs $ \(ptr, len) -> do
-                    offset <- fromIntegral <$>
-                        c_scan_datarows ptr (fromIntegral len) reasonPtr
-                    r <- peek reasonPtr
-                    pure (offset, r)
-            let (ch, nbs) = B.splitAt offset bs
-            let (!newAcc, !newBs) = if B.null ch
-                                  then (acc, bs)
-                                  else (BL.chunk ch acc, nbs)
-            case r of
-                1 -> readMoreAndGo newBs newAcc
-                2 -> do
-                    let (Header mt len) = parseHeader newBs
-                    goOther mt len (B.drop 5 newBs) newAcc
+            ScanRowResult ch rest r <- scanDataRows bs
+            -- We should force accumulator
+            let !newAcc = BL.chunk ch acc
 
-    {-# INLINE goOther #-}
-    goOther :: Word8 -> Int -> B.ByteString -> BL.ByteString -> IO ()
-    goOther !mt !len !bs !acc =  case chr (fromIntegral mt) of
-        'C' -> do
+            case r of
+                1 -> readMoreAndGo rest newAcc
+                2 -> do
+                    Header mt len <- parseHeader rest
+                    dispatchHeader mt len (B.drop 5 rest) newAcc
+
+    {-# INLINE dispatchHeader #-}
+    dispatchHeader :: Word8 -> Int -> B.ByteString -> BL.ByteString -> IO ()
+    dispatchHeader mt len bs acc = case mt of
+        -- 'C'
+        67 -> do
             callback $
                 DataMessage . DataRows $
                     BL.foldlChunks (flip BL.chunk) BL.empty acc
 
             newBs <- skipBytes bs len
             go newBs BL.empty
-        'I' -> do
+        -- 'I'
+        73 -> do
             callback $
                 DataMessage . DataRows $
                     BL.foldlChunks (flip BL.chunk) BL.empty acc
 
             go bs BL.empty
-        'E' -> do
+        -- 'E"
+        69 -> do
             (b, newBs) <- readAtLeast bs len
             desc <- eitherToDecode $ parseErrorDesc b
             callback (DataError desc)
 
             go newBs BL.empty
-        'Z' -> do
+        -- 'Z'
+        90 -> do
             callback DataReady
 
             newBs <- skipBytes bs len
             go newBs acc
-        c   -> do
+
+        _   -> do
             newBs <- skipBytes bs len
             go newBs acc
 
     {-# INLINE readMoreAndGo #-}
     readMoreAndGo :: B.ByteString -> BL.ByteString -> IO ()
-    readMoreAndGo !bs !acc = do
-        -- print "Read more and go"
+    readMoreAndGo bs acc = do
         newBs <- readMoreAction bs
         go newBs acc
 
     {-# INLINE readAtLeast #-}
     readAtLeast :: B.ByteString -> Int -> IO (B.ByteString, B.ByteString)
-    readAtLeast !bs !len
+    readAtLeast bs len
         | B.length bs >= len = pure $ B.splitAt len bs
         | otherwise = do
-                            newBs <- readMoreAction bs
-                            readAtLeast newBs len
+            newBs <- readMoreAction bs
+            readAtLeast newBs len
 
     {-# INLINE skipBytes #-}
     skipBytes :: B.ByteString -> Int -> IO B.ByteString
-    skipBytes !bs !toSkip | toSkip <= 0 = pure bs
-                        | B.length bs < toSkip = do
-                            newBs <- readMoreAction ""
-                            skipBytes newBs (toSkip - B.length bs)
-                        | otherwise = pure $ B.drop toSkip bs
+    skipBytes bs toSkip
+        | toSkip <= 0          = pure bs
+        | B.length bs < toSkip = do
+            newBs <- readMoreAction B.empty
+            skipBytes newBs (toSkip - B.length bs)
+        | otherwise            = pure $ B.drop toSkip bs
 
-
-{-# INLINE parseHeader #-}
-parseHeader :: B.ByteString -> Header
-parseHeader !bs =
-    let w1 = B.index bs 1
-        w2 = B.index bs 2
-        w3 = B.index bs 3
-        w4 = B.index bs 4
-        w = fromIntegral w1 * 256 * 256 * 256 +
-            fromIntegral w2 * 256 * 256 +
-            fromIntegral w3 * 256 +
-            fromIntegral w4
-    in Header (B.index bs 0) (w - 4)
-
-
--- MT_COMMAND_COMPLETE 'C'
--- MT_EMPTY_QUERY_RESPONSE 'I'
--- MT_ERROR_RESPONSE 'E'
--- MT_READY_FOR_QUERY 'Z'
-
+    {-# INLINE parseHeader #-}
+    parseHeader :: B.ByteString -> IO Header
+    parseHeader !bs =
+        B.unsafeUseAsCStringLen bs $ \(ptr, len) -> do
+            b <- peek (castPtr ptr)
+            w <- byteSwap32 <$> peekByteOff (castPtr ptr) 1
+            pure $ Header b $ fromIntegral (w - 4)
 
 decodeAuthResponse :: Decode AuthResponse
 decodeAuthResponse = do
