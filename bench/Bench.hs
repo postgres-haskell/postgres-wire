@@ -12,14 +12,33 @@ import Control.Concurrent
 import Control.Applicative
 import Control.Monad
 import Data.Monoid
+import Control.DeepSeq
 
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.Encoders
 import Database.PostgreSQL.Protocol.Decoders
+import Database.PostgreSQL.Driver.Connection
 import Database.PostgreSQL.Driver
 import Criterion.Main
 
-main = benchLoop
+-- CREATE TABLE _bytes_100_of_1k(b bytea);
+-- CREATE TABLE _bytes_400_of_200(b bytea);
+-- CREATE TABLE _bytes_10_of_20k(b bytea);
+-- CREATE TABLE _bytes_1_of_200(b bytea);
+
+-- INSERT INTO _bytes_100_of_1k(b)
+--   (SELECT repeat('a', 1000)::bytea FROM generate_series(1, 100));
+-- INSERT INTO _bytes_400_of_200(b)
+--   (SELECT repeat('a', 200)::bytea FROM generate_series(1, 400));
+-- INSERT INTO _bytes_10_of_20k(b)
+--   (SELECT repeat('a', 20000)::bytea FROM generate_series(1, 10));
+-- INSERT INTO _bytes_1_of_200(b) VALUES(repeat('a', 200)::bytea);
+
+main = defaultMain
+    [ bgroup "Requests"
+        [ env createConnection (\c -> bench "100 of 1k" . nfIO $ requestAction c)
+        ]
+    ]
 
 benchLoop :: IO ()
 benchLoop = do
@@ -61,25 +80,22 @@ benchRequests connectAction queryAction = do
             modifyIORef' ref (+1)
         pure (ref, tid)
 
-benchMultiPw :: IO ()
-benchMultiPw = benchRequests createConnection $ \c -> do
-            sendBatchAndSync c [q, q, q, q, q, q, q, q, q, q]
-            readNextData c
-            readNextData c
-            readNextData c
-            readNextData c
-            readNextData c
-            readNextData c
-            readNextData c
-            readNextData c
-            readNextData c
+requestAction c = replicateM_ 100 $ do
+            sendBatchAndSync c [q]
             readNextData c
             waitReadyForQuery c
   where
     q = Query largeStmt V.empty Binary Binary AlwaysCache
-    largeStmt = "select typname, typnamespace, typowner, typlen, typbyval,"
-                <> "typcategory, typispreferred, typisdefined, typdelim,"
-                <> "typrelid, typelem, typarray from pg_type "
+    largeStmt = "SELECT * from _bytes_1_of_200"
+
+benchMultiPw :: IO ()
+benchMultiPw = benchRequests createConnection $ \c -> do
+            sendBatchAndSync c [q]
+            readNextData c
+            waitReadyForQuery c
+  where
+    q = Query largeStmt V.empty Binary Binary AlwaysCache
+    largeStmt = "SELECT * from _bytes_400_of_200"
 
 -- Connection
 -- | Creates connection with default filter.
@@ -96,4 +112,12 @@ defaultSettings = defaultConnectionSettings
     , settingsUser     = "postgres"
     , settingsPassword = ""
     }
+
+-- Orphans
+
+instance NFData (AbsConnection a) where
+    rnf _ = ()
+
+instance NFData Error where
+    rnf _ = ()
 
