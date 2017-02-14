@@ -71,12 +71,6 @@ type NotificationHandler = Notification -> IO ()
 defaultNotificationHandler :: NotificationHandler
 defaultNotificationHandler = const $ pure ()
 
-type DataDispatcher
-    =  InDataChan
-    -> ServerMessage
-    -> [B.ByteString]
-    -> IO [B.ByteString]
-
 -- | Public
 connect :: ConnectionSettings -> IO (Either Error Connection)
 connect settings = connectWith settings $ \rawConn params ->
@@ -166,9 +160,8 @@ buildConnection
     -> (TQueue (Either ReceiverException c) -> IO ())
     -> IO (AbsConnection c)
 buildConnection rawConn connParams receiverAction = do
-    -- (inChan, outChan)         <- newChan
-    chan         <- newTQueueIO
-    storage                   <- newStatementStorage
+    chan    <- newTQueueIO
+    storage <- newStatementStorage
 
     let createReceiverThread = mask_ $ forkIOWithUnmask $ \unmask ->
             unmask (receiverAction chan)
@@ -236,6 +229,8 @@ receiverThread
     -> IO ()
 receiverThread rawConn dataChan =
     loopExtractDataRows
+        -- TODO
+        -- dont append strings. Allocate buffer manually and use unsafeReceive
         (\bs -> (bs <>) <$> rReceive rawConn 4096)
         (writeChan dataChan . Right)
 
@@ -247,67 +242,18 @@ receiverThreadCommon
     -> NotificationHandler
     -> IO ()
 receiverThreadCommon rawConn chan msgFilter ntfHandler =
-    receiveLoop Nothing ""
+    loopParseServerMessages
+        -- TODO
+        -- dont append strings. Allocate buffer manually and use unsafeReceive
+        (\bs -> (bs <>) <$> rReceive rawConn 4096)
+        handler
   where
-    receiveLoop :: Maybe Header -> B.ByteString ->  IO ()
-    -- Parsing header
-    receiveLoop Nothing bs
-        | B.length bs < 5 = do
-            r <- rReceive rawConn 4096
-            receiveLoop Nothing (bs <> r)
-        | otherwise =  case runDecode decodeHeader bs of
-            -- TODO handle error
-            Left reason -> undefined
-            -- reportReceiverError dataChan allChan
-            --                 $ DecodeError $ BS.pack reason
-            Right (rest, h) ->  receiveLoop (Just h) rest
-    -- Parsing body
-    receiveLoop (Just h@(Header _ len)) bs
-        | B.length bs < len = do
-            r <- rReceive rawConn 4096
-            receiveLoop (Just h) (bs <> r)
-        | otherwise = case runDecode (decodeServerMessage h) bs of
-            -- TODO handle error
-            Left reason -> undefined
-                -- reportReceiverError dataChan allChan
-                --             $ DecodeError $ BS.pack reason
-            Right (rest, v) -> do
-                dispatchIfNotification v ntfHandler
-                when (msgFilter v) $ writeChan chan $ Right v
-                receiveLoop Nothing rest
+    handler msg = do
+        dispatchIfNotification msg ntfHandler
+        when (msgFilter msg) $ writeChan chan $ Right msg
+
     dispatchIfNotification (NotificationResponse ntf) handler = handler ntf
     dispatchIfNotification _ _ = pure ()
-
--- | Dispatcher for the ExtendedQuery mode.
-dispatchExtended :: DataDispatcher
-dispatchExtended dataChan message acc = case message of
-    -- Command is completed, return the result
-    CommandComplete _ -> do
-        writeChan dataChan . Right . DataMessage . DataRows . BL.fromChunks
-            $ reverse acc
-        pure []
-    -- note that data rows go in reversed order
-    DataRow row -> pure (row:acc)
-    -- PostgreSQL sends this if query string was empty and datarows should be
-    -- empty, but anyway we return data collected in `acc`.
-    EmptyQueryResponse -> do
-        writeChan dataChan . Right . DataMessage . DataRows . BL.fromChunks
-            $ reverse acc
-        pure []
-    -- On ErrorResponse we should discard all the collected datarows.
-    ErrorResponse desc -> do
-        writeChan dataChan $ Right $ DataError desc
-        pure []
-    -- to know when command processing is finished
-    ReadForQuery{}         -> do
-        writeChan dataChan $ Right DataReady
-        pure acc
-    -- We does not handled `PortalSuspended` because we always send `execute`
-    -- with no limit.
-    -- PortalSuspended -> pure acc
-
-    -- do nothing on other messages
-    _ -> pure acc
 
 -- | For testings purposes.
 filterAllowedAll :: ServerMessageFilter

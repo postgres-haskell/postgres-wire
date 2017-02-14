@@ -8,6 +8,7 @@ module Database.PostgreSQL.Protocol.Decoders
     , parseServerVersion
     , parseIntegerDatetimes
     , loopExtractDataRows
+    , loopParseServerMessages
     ) where
 
 import           Control.Applicative
@@ -48,7 +49,7 @@ loopExtractDataRows readMoreAction callback = go "" ""
         | otherwise = do
             ScanRowResult ch rest r <- scanDataRows bs
             -- We should force accumulator
-            -- `BL.chunk` does not prepend empty bytestring as chunk.
+            -- Note: `BL.chunk` should not prepend empty bytestring as chunk.
             let !newAcc = BL.chunk ch acc
 
             case r of
@@ -140,6 +141,35 @@ loopExtractDataRows readMoreAction callback = go "" ""
             b <- peek (castPtr ptr)
             w <- byteSwap32 <$> peekByteOff (castPtr ptr) 1
             pure $ Header b $ fromIntegral (w - 4)
+
+-- | Loop that parses and dispatches all server messages except `DataRow`.
+loopParseServerMessages
+    -- Action that returs more data with `ByteString` prepended.
+    :: (B.ByteString -> IO B.ByteString)
+    -- Will be called on every ServerMessage.
+    -> (ServerMessage -> IO ())
+    -> IO ()
+loopParseServerMessages readMoreAction callback = go Nothing ""
+  where
+    -- Parse header
+    go Nothing bs
+        | B.length bs < 5 = readMoreAndGo Nothing bs
+        | otherwise = case runDecode decodeHeader bs of
+            -- TODO handle error
+            Left reason -> undefined
+            Right (rest, h) -> go (Just h) rest
+    -- Parse body
+    go (Just h@(Header _ len)) bs
+        | B.length bs < len = readMoreAndGo (Just h) bs
+        | otherwise = case runDecode (decodeServerMessage h) bs of
+            -- TODO handle error
+            Left reason -> undefined
+            Right (rest, v) -> callback v >> go Nothing rest
+
+    {-# INLINE readMoreAndGo #-}
+    readMoreAndGo :: Maybe Header -> B.ByteString -> IO ()
+    readMoreAndGo h = (go h =<<) . readMoreAction
+
 
 decodeAuthResponse :: Decode AuthResponse
 decodeAuthResponse = do
