@@ -239,36 +239,6 @@ receiverThread rawConn dataChan =
         (\bs -> (bs <>) <$> rReceive rawConn 4096)
         (writeChan dataChan . Right)
 
-  where
-    receiveLoop
-        :: Maybe Header
-        -> B.ByteString
-        -> [B.ByteString] -> IO ()
-    -- Parsing header
-    receiveLoop Nothing bs acc
-        | B.length bs < 5 = do
-            r <- rReceive rawConn 4096
-            receiveLoop Nothing (bs <> r) acc
-        | otherwise =  case runDecode decodeHeader bs of
-            -- TODO handle error
-            Left reason -> undefined
-            -- reportReceiverError dataChan allChan
-            --                 $ DecodeError $ BS.pack reason
-            Right (rest, h) ->  receiveLoop (Just h) rest acc
-    -- Parsing body
-    receiveLoop (Just h@(Header _ len)) bs acc
-        | B.length bs < len = do
-            r <- rReceive rawConn 4096
-            receiveLoop (Just h) (bs <> r) acc
-        | otherwise = case runDecode (decodeServerMessage h) bs of
-            -- TODO handle error
-            Left reason -> undefined
-                -- reportReceiverError dataChan allChan
-                --             $ DecodeError $ BS.pack reason
-            Right (rest, v) -> do
-                newAcc <- dispatchExtended dataChan v acc
-                receiveLoop Nothing rest newAcc
-
 -- | Any exception prevents thread from future work
 receiverThreadCommon
     :: RawConnection
