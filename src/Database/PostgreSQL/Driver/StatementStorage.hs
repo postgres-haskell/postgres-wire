@@ -10,7 +10,7 @@ import Database.PostgreSQL.Protocol.Types
 
 -- | Prepared statement storage
 data StatementStorage = StatementStorage
-    (H.CuckooHashTable StatementSQL StatementName) (IORef Word)
+    (H.BasicHashTable StatementSQL StatementName) (IORef Word)
 
 -- | Cache policy about prepared statements.
 data CachePolicy
