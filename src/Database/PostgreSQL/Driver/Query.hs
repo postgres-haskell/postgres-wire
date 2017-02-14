@@ -1,6 +1,5 @@
 module Database.PostgreSQL.Driver.Query where
 
-import Control.Concurrent.Chan.Unagi
 import Data.Foldable
 import Data.Monoid
 import Data.Bifunctor

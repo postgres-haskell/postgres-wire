@@ -17,7 +17,8 @@ import Data.Monoid
 import Control.Concurrent (forkIOWithUnmask, killThread, ThreadId, threadDelay
                           , mkWeakThreadId)
 import qualified Data.Vector as V
-import Control.Concurrent.Chan.Unagi
+import Control.Concurrent.STM.TQueue
+import Control.Concurrent.STM
 import qualified Data.HashMap.Strict as HM
 import Crypto.Hash (hash, Digest, MD5)
 
@@ -39,15 +40,18 @@ data AbsConnection mt = AbsConnection
     , connReceiverThread    :: Weak ThreadId
     , connStatementStorage  :: StatementStorage
     , connParameters        :: ConnectionParameters
-    , connOutChan           :: OutChan (Either ReceiverException mt)
+    , connOutChan           :: TQueue (Either ReceiverException mt)
     }
 
 type Connection       = AbsConnection DataMessage
 type ConnectionCommon = AbsConnection ServerMessage
 
-type InDataChan = InChan (Either ReceiverException DataMessage)
-type InAllChan  = InChan (Either ReceiverException ServerMessage)
+type InDataChan = TQueue (Either ReceiverException DataMessage)
+type InAllChan  = TQueue (Either ReceiverException ServerMessage)
 
+
+writeChan q = atomically . writeTQueue q
+readChan = atomically . readTQueue
 -- | Parameters of the current connection.
 -- We store only the parameters that cannot change after startup.
 -- For more information about additional parameters see
@@ -159,15 +163,16 @@ buildConnection
     :: RawConnection
     -> ConnectionParameters
     -- action in receiver thread
-    -> (InChan (Either ReceiverException c) -> IO ())
+    -> (TQueue (Either ReceiverException c) -> IO ())
     -> IO (AbsConnection c)
 buildConnection rawConn connParams receiverAction = do
-    (inChan, outChan)         <- newChan
+    -- (inChan, outChan)         <- newChan
+    chan         <- newTQueueIO
     storage                   <- newStatementStorage
 
     let createReceiverThread = mask_ $ forkIOWithUnmask $ \unmask ->
-            unmask (receiverAction inChan)
-            `catch` (writeChan inChan . Left . ReceiverException)
+            unmask (receiverAction chan)
+            `catch` (writeChan chan . Left . ReceiverException)
 
     --  When receiver thread dies by any unexpected exception, than message
     --  would be written in its chan.
@@ -180,7 +185,7 @@ buildConnection rawConn connParams receiverAction = do
             , connReceiverThread   = weakTid
             , connStatementStorage = storage
             , connParameters       = connParams
-            , connOutChan          = outChan
+            , connOutChan          = chan
             }
 
 -- | Parses connection parameters.
@@ -231,8 +236,9 @@ receiverThread
     -> IO ()
 receiverThread rawConn dataChan =
     loopExtractDataRows
-        (rReceive rawConn 4096)
+        (\bs -> (bs <>) <$> rReceive rawConn 4096)
         (writeChan dataChan . Right)
+
   where
     receiveLoop
         :: Maybe Header

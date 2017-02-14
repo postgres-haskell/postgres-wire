@@ -38,9 +38,9 @@ library
                      , time
                      , hashable
                      , hashtables
-                     , unagi-chan
                      , unordered-containers
                      , unix
+                     , stm
                      , postgresql-binary
                      , tls
                      , cryptonite
