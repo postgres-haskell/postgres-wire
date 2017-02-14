@@ -1,5 +1,4 @@
 {-# language RecordWildCards #-}
-{-# language ForeignFunctionInterface #-}
 
 module Database.PostgreSQL.Protocol.Decoders
     ( decodeAuthResponse
@@ -16,7 +15,8 @@ import           Control.Monad
 import           Data.Monoid ((<>))
 import           Data.Maybe (fromMaybe)
 import           Data.Char (chr)
-import Data.Word
+import           Data.Word
+import           Foreign
 import           Text.Read (readMaybe)
 import qualified Data.Vector as V
 import qualified Data.ByteString as B
@@ -26,30 +26,9 @@ import qualified Data.ByteString.Lazy.Internal as BL
 import           Data.ByteString.Char8 as BS(readInteger, readInt, unpack, pack)
 import qualified Data.HashMap.Strict as HM
 
-import Foreign.C.Types          (CInt, CSize(..), CChar)
-import Foreign
-
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.Store.Decode
-
-foreign import ccall unsafe "static pw_utils.h scan_datarows" c_scan_datarows
-    :: Ptr CChar -> CSize -> Ptr CInt -> IO CSize
-
-data ScanRowResult = ScanRowResult
-    {-# UNPACK #-} !B.ByteString  -- chunk of datarows
-    {-# UNPACK #-} !B.ByteString  -- rest
-    {-# UNPACK #-} !Int           -- reason code
-
-{-# INLINE scanDataRows #-}
-scanDataRows :: B.ByteString -> IO ScanRowResult
-scanDataRows bs =
-    alloca $ \reasonPtr ->
-        B.unsafeUseAsCStringLen bs $ \(ptr, len) -> do
-            offset <- fromIntegral <$>
-                        c_scan_datarows ptr (fromIntegral len) reasonPtr
-            reason <- peek reasonPtr
-            let (ch, rest) = B.splitAt offset bs
-            pure $ ScanRowResult ch rest $ fromIntegral reason
+import Database.PostgreSQL.Protocol.Utils
 
 -- Extracts DataRows
 --

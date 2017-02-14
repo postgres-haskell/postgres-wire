@@ -30,6 +30,7 @@ library
                      , Database.PostgreSQL.Protocol.Decoders
                      , Database.PostgreSQL.Protocol.Store.Encode
                      , Database.PostgreSQL.Protocol.Store.Decode
+  other-modules:       Database.PostgreSQL.Protocol.Utils
   build-depends:       base >= 4.7 && < 5
                      , bytestring
                      , socket
@@ -52,7 +53,7 @@ library
     BangPatterns
     OverloadedStrings
     GeneralizedNewtypeDeriving
-  cpp-options:      -O2
+  cc-options:      -O2 -Wall
 
 test-suite postgres-wire-test-connection
   type:                exitcode-stdio-1.0
