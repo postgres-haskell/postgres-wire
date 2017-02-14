@@ -50,8 +50,12 @@ type InDataChan = TQueue (Either ReceiverException DataMessage)
 type InAllChan  = TQueue (Either ReceiverException ServerMessage)
 
 
+writeChan :: TQueue a -> a -> IO ()
 writeChan q = atomically . writeTQueue q
+
+readChan :: TQueue a -> IO a
 readChan = atomically . readTQueue
+
 -- | Parameters of the current connection.
 -- We store only the parameters that cannot change after startup.
 -- For more information about additional parameters see
@@ -124,7 +128,7 @@ authorize rawConn settings = do
         -- the startup phase.
         resp <- rReceive rawConn 4096
         case runDecode decodeAuthResponse resp of
-            Right (rest, r) -> case r of
+            (rest, r) -> case r of
                 AuthenticationOk ->
                     pure $ parseParameters rest
                 AuthenticationCleartextPassword ->
@@ -139,9 +143,6 @@ authorize rawConn settings = do
                     throwAuthErrorInIO $ AuthNotSupported "GSS"
                 AuthErrorResponse desc    ->
                     throwErrorInIO $ PostgresError desc
-            Left reason -> error "handle error here"
-                -- TODO handle errors
-                -- throwErrorInIO . DecodeError $ BS.pack reason
 
     performPasswordAuth password = do
         sendMessage rawConn $ PasswordMessage password
@@ -204,13 +205,10 @@ parseParameters str = do
     go str dict | B.null str = Right dict
                 | otherwise = case runDecode
                     (decodeHeader >>= decodeServerMessage) str of
-        Right (rest, v) -> case v of
+        (rest, v) -> case v of
             ParameterStatus name value -> go rest $ HM.insert name value dict
             -- messages like `BackendData` not handled
             _                          -> go rest dict
-        Left reason -> error "handle error here"
-            -- TODO
-            -- Left . DecodeError $ BS.pack reason
 
 handshakeTls :: RawConnection ->  IO ()
 handshakeTls _ = pure ()
@@ -223,16 +221,12 @@ close conn = do
     rClose $ connRawConnection conn
 
 -- | Any exception prevents thread from future work
-receiverThread
-    :: RawConnection
-    -> InDataChan
-    -> IO ()
-receiverThread rawConn dataChan =
-    loopExtractDataRows
-        -- TODO
-        -- dont append strings. Allocate buffer manually and use unsafeReceive
-        (\bs -> (bs <>) <$> rReceive rawConn 4096)
-        (writeChan dataChan . Right)
+receiverThread :: RawConnection -> InDataChan -> IO ()
+receiverThread rawConn dataChan = loopExtractDataRows
+    -- TODO
+    -- dont append strings. Allocate buffer manually and use unsafeReceive
+    (\bs -> (bs <>) <$> rReceive rawConn 4096)
+    (writeChan dataChan . Right)
 
 -- | Any exception prevents thread from future work
 receiverThreadCommon

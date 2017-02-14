@@ -231,9 +231,8 @@ testCorrectDatarows = withConnection $ \c -> do
             map (BS.pack . show ) [1 .. 1000] @=? go bs
   where
     go bs | B.null bs = []
-          | otherwise = case runDecode decodeDataRow bs of
-              Left e -> error $ show e
-              Right (rest, v) -> v : go rest
+          | otherwise = let (rest, v) = runDecode decodeDataRow bs
+                        in v : go rest
     -- TODO Right parser later
     decodeDataRow :: Decode B.ByteString
     decodeDataRow = do

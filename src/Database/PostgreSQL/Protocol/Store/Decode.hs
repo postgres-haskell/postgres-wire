@@ -17,10 +17,10 @@ import qualified Data.ByteString.Internal as B
 newtype Decode a = Decode (Peek a)
     deriving (Functor, Applicative, Monad)
 
-runDecode :: Decode a -> B.ByteString -> Either String (B.ByteString, a)
+runDecode :: Decode a -> B.ByteString -> (B.ByteString, a)
 runDecode (Decode dec) bs =
     let (offset,v ) = decodeExPortionWith dec bs
-    in Right (B.drop offset bs, v)
+    in (B.drop offset bs, v)
 {-# INLINE runDecode #-}
 
 fixed :: Int -> (Ptr Word8 -> IO a) -> Decode a

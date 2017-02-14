@@ -154,17 +154,13 @@ loopParseServerMessages readMoreAction callback = go Nothing ""
     -- Parse header
     go Nothing bs
         | B.length bs < 5 = readMoreAndGo Nothing bs
-        | otherwise = case runDecode decodeHeader bs of
-            -- TODO handle error
-            Left reason -> undefined
-            Right (rest, h) -> go (Just h) rest
+        | otherwise = let (rest, h) = runDecode decodeHeader bs
+                      in go (Just h) rest
     -- Parse body
     go (Just h@(Header _ len)) bs
         | B.length bs < len = readMoreAndGo (Just h) bs
-        | otherwise = case runDecode (decodeServerMessage h) bs of
-            -- TODO handle error
-            Left reason -> undefined
-            Right (rest, v) -> callback v >> go Nothing rest
+        | otherwise = let (rest, v) = runDecode (decodeServerMessage h) bs
+                      in callback v >> go Nothing rest
 
     {-# INLINE readMoreAndGo #-}
     readMoreAndGo :: Maybe Header -> B.ByteString -> IO ()
