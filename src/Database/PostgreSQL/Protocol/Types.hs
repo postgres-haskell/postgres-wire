@@ -53,7 +53,7 @@ newtype DataRows = DataRows BL.ByteString
 -- | Ad-hoc type only for data rows.
 data DataMessage
     = DataError ErrorDesc
-    | DataMessage DataRows
+    | DataMessage !DataRows
     -- ReadyForQuery received.
     | DataReady
     deriving (Show)

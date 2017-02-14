@@ -1,4 +1,5 @@
 {-# language RecordWildCards #-}
+{-# language ForeignFunctionInterface #-}
 
 module Database.PostgreSQL.Protocol.Decoders
     ( decodeAuthResponse
@@ -19,13 +20,20 @@ import Data.Word
 import           Text.Read (readMaybe)
 import qualified Data.Vector as V
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Unsafe as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Internal as BL
 import           Data.ByteString.Char8 as BS(readInteger, readInt, unpack, pack)
 import qualified Data.HashMap.Strict as HM
 
+import Foreign.C.Types          (CInt, CSize(..), CChar)
+import Foreign
+
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.Store.Decode
+
+foreign import ccall unsafe "static pw_utils.h scan_datarows" c_scan_datarows
+    :: Ptr CChar -> CSize -> Ptr CInt -> IO CSize
 
 -- Extracts DataRows
 --
@@ -37,21 +45,25 @@ loopExtractDataRows
     -> IO ()
 loopExtractDataRows readMoreAction callback = go "" ""
   where
-    {-# NOINLINE go #-}
     go :: B.ByteString -> BL.ByteString -> IO ()
     -- header size
     go !bs !acc
         | B.length bs < 5 = readMoreAndGo bs acc
         | otherwise = do
             -- print "Main branch"
-            let (offset, r) = scanDataRows 0 bs
+            (offset, r) <- alloca $ \reasonPtr ->
+                B.unsafeUseAsCStringLen bs $ \(ptr, len) -> do
+                    offset <- fromIntegral <$>
+                        c_scan_datarows ptr (fromIntegral len) reasonPtr
+                    r <- peek reasonPtr
+                    pure (offset, r)
             let (ch, nbs) = B.splitAt offset bs
             let (!newAcc, !newBs) = if B.null ch
                                   then (acc, bs)
                                   else (BL.chunk ch acc, nbs)
             case r of
-                NeedMore -> readMoreAndGo newBs newAcc
-                OtherHeader -> do
+                1 -> readMoreAndGo newBs newAcc
+                2 -> do
                     let (Header mt len) = parseHeader newBs
                     goOther mt len (B.drop 5 newBs) newAcc
 
@@ -59,59 +71,56 @@ loopExtractDataRows readMoreAction callback = go "" ""
     goOther :: Word8 -> Int -> B.ByteString -> BL.ByteString -> IO ()
     goOther !mt !len !bs !acc =  case chr (fromIntegral mt) of
         'C' -> do
-            let !msg = DataMessage . DataRows $ BL.foldlChunks (flip BL.chunk) "" acc
-            callback msg
+            callback $
+                DataMessage . DataRows $
+                    BL.foldlChunks (flip BL.chunk) BL.empty acc
 
-            newBs <- skipBytes readMoreAction bs len
+            newBs <- skipBytes bs len
             go newBs BL.empty
         'I' -> do
-            let !msg = DataMessage . DataRows $ BL.foldlChunks (flip BL.chunk) "" acc
-            callback msg
+            callback $
+                DataMessage . DataRows $
+                    BL.foldlChunks (flip BL.chunk) BL.empty acc
 
             go bs BL.empty
         'E' -> do
             (b, newBs) <- readAtLeast bs len
             desc <- eitherToDecode $ parseErrorDesc b
-            -- callback (DataError desc)
+            callback (DataError desc)
+
             go newBs BL.empty
         'Z' -> do
             callback DataReady
 
-            newBs <- skipBytes readMoreAction bs len
+            newBs <- skipBytes bs len
             go newBs acc
         c   -> do
-            newBs <- skipBytes readMoreAction bs len
+            newBs <- skipBytes bs len
             go newBs acc
 
+    {-# INLINE readMoreAndGo #-}
+    readMoreAndGo :: B.ByteString -> BL.ByteString -> IO ()
     readMoreAndGo !bs !acc = do
         -- print "Read more and go"
         newBs <- readMoreAction bs
         go newBs acc
 
+    {-# INLINE readAtLeast #-}
     readAtLeast :: B.ByteString -> Int -> IO (B.ByteString, B.ByteString)
-    readAtLeast !bs !len | B.length bs >= len = pure $ B.splitAt len bs
-                       | otherwise = do
+    readAtLeast !bs !len
+        | B.length bs >= len = pure $ B.splitAt len bs
+        | otherwise = do
                             newBs <- readMoreAction bs
                             readAtLeast newBs len
 
-{-# NOINLINE skipBytes #-}
--- skipBytes :: IO B.ByteString -> B.ByteString -> Int -> IO B.ByteString
-skipBytes readMoreAction !bs !toSkip | toSkip <= 0 = pure bs
-                    | B.length bs < toSkip = do
-                        newBs <- readMoreAction ""
-                        skipBytes readMoreAction newBs (toSkip - B.length bs)
-                    | otherwise = pure $ B.drop toSkip bs
+    {-# INLINE skipBytes #-}
+    skipBytes :: B.ByteString -> Int -> IO B.ByteString
+    skipBytes !bs !toSkip | toSkip <= 0 = pure bs
+                        | B.length bs < toSkip = do
+                            newBs <- readMoreAction ""
+                            skipBytes newBs (toSkip - B.length bs)
+                        | otherwise = pure $ B.drop toSkip bs
 
-scanDataRows :: Int -> B.ByteString -> (Int, ExtractorResult)
-scanDataRows !acc !bs | B.length bs < 5 = (acc, NeedMore)
-                      | otherwise =
-                        let (Header mt len) = parseHeader bs
-                        in if chr (fromIntegral mt) == 'D'
-                           then if B.length bs < len  + 5
-                                then (acc, NeedMore)
-                                else scanDataRows (acc + len + 5)
-                                        $ B.drop (len + 5) bs
-                           else (acc, OtherHeader)
 
 {-# INLINE parseHeader #-}
 parseHeader :: B.ByteString -> Header

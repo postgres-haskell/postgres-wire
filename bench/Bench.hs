@@ -1,6 +1,9 @@
+{-# language BangPatterns #-}
 module Main where
 
 import Data.ByteString.Lazy (toStrict)
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString as B
 import Data.ByteString.Builder (toLazyByteString)
 import Data.ByteString (ByteString)
 import Data.Vector as V(fromList, empty)
@@ -12,10 +15,35 @@ import Data.Monoid
 
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.Encoders
+import Database.PostgreSQL.Protocol.Decoders
 import Database.PostgreSQL.Driver
 import Criterion.Main
 
-main = benchMultiPw
+main = benchLoop
+
+benchLoop :: IO ()
+benchLoop = do
+    ref <- newIORef 0 :: IO (IORef Word)
+    rbs <- newIORef "" :: IO (IORef BL.ByteString)
+    !bs <- B.readFile "1.txt"
+    let str = BL.cycle $ BL.fromStrict bs
+    writeIORef rbs str
+
+    let handler dm = case dm of
+            DataMessage _ -> modifyIORef' ref (+1)
+            _ -> pure ()
+        newChunk preBs = do
+            b <- readIORef rbs
+            let (nb, rest) = BL.splitAt 4096 b
+            writeIORef rbs rest
+            -- let res = preBs <> (B.copy $ BL.toStrict nb)
+            let res = preBs <> ( BL.toStrict nb)
+            res `seq` pure res
+    tid <- forkIO $ forever $ loopExtractDataRows newChunk handler
+    threadDelay 1000000
+    killThread tid
+    s <- readIORef ref
+    print $ "Requests: " ++ show s
 
 benchRequests :: IO c -> (c -> IO a) -> IO ()
 benchRequests connectAction queryAction = do
