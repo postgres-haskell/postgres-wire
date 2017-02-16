@@ -27,8 +27,7 @@ loopExtractDataRows readMoreAction callback = go "" ""
   where
     go :: B.ByteString -> BL.ByteString -> IO ()
     go bs acc
-        -- 5 - header size, defined by PostgreSQL
-        | B.length bs < 5 = readMoreAndGo bs acc
+        | B.length bs < headerSize = readMoreAndGo bs acc
         | otherwise = do
             ScanRowResult ch rest r <- scanDataRows bs
             -- We should force accumulator
@@ -45,7 +44,7 @@ loopExtractDataRows readMoreAction callback = go "" ""
                 -- that there are enough bytes to read header.
                 2 -> do
                     Header mt len <- parseHeader rest
-                    dispatchHeader mt len (B.drop 5 rest) newAcc
+                    dispatchHeader mt len (B.drop headerSize rest) newAcc
 
     {-# INLINE dispatchHeader #-}
     dispatchHeader :: Word8 -> Int -> B.ByteString -> BL.ByteString -> IO ()

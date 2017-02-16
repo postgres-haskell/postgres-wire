@@ -154,6 +154,10 @@ data CancelRequest = CancelRequest !ServerProcessId !ServerSecretKey
 data Header = Header {-# UNPACK #-} !Word8 {-# UNPACK #-} !Int
     deriving (Show)
 
+-- | Server message's header size.
+headerSize :: Int
+headerSize = 5
+
 -- | All possible responses from a server in usual query phase.
 data ServerMessage
     = BackendKeyData !ServerProcessId !ServerSecretKey

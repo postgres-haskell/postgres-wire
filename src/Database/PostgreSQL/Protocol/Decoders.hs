@@ -3,7 +3,7 @@
 module Database.PostgreSQL.Protocol.Decoders
     ( 
     -- * High-lever decoder
-    decodeNextServerMessage
+      decodeNextServerMessage
     -- * Decoders
     , decodeAuthResponse
     , decodeHeader
@@ -14,26 +14,18 @@ module Database.PostgreSQL.Protocol.Decoders
     , parseErrorDesc
     ) where
 
-import           Control.Applicative
-import           Control.Monad
 import           Data.Monoid ((<>))
 import           Data.Maybe (fromMaybe)
 import           Data.Char (chr)
-import           Data.Word
-import           Foreign
+import           Data.Word (Word8, Word16, Word32)
 import           Text.Read (readMaybe)
 import qualified Data.Vector as V
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Unsafe as B
-import qualified Data.ByteString.Lazy as BL
-import qualified Data.ByteString.Lazy.Internal as BL
 import           Data.ByteString.Char8 as BS(readInteger, readInt, unpack, pack)
 import qualified Data.HashMap.Strict as HM
 
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.Store.Decode
-import Database.PostgreSQL.Protocol.Utils
-
 
 -- | Parses and dispatches all server messages except `DataRow`.
 decodeNextServerMessage
@@ -46,7 +38,7 @@ decodeNextServerMessage bs readMoreAction = go Nothing bs
   where
     -- Parse header
     go Nothing bs
-        | B.length bs < 5 = readMoreAndGo Nothing bs
+        | B.length bs < headerSize = readMoreAndGo Nothing bs
         | otherwise = let (rest, h) = runDecode decodeHeader bs
                       in go (Just h) rest
     -- Parse body
@@ -57,13 +49,15 @@ decodeNextServerMessage bs readMoreAction = go Nothing bs
     {-# INLINE readMoreAndGo #-}
     readMoreAndGo h = (go h =<<) . readMoreAction
 
+--------------------------------
+-- Protocol decoders
+
 decodeAuthResponse :: Decode AuthResponse
 decodeAuthResponse = do
-    c <- getWord8
-    len <- getInt32BE
+    Header c len <- decodeHeader
     case chr $ fromIntegral c of
         'E' -> AuthErrorResponse <$>
-            (getByteString (fromIntegral $ len - 4) >>=
+            (getByteString len >>=
                 eitherToDecode .parseErrorDesc)
         'R' -> do
             rType <- getInt32BE
@@ -73,8 +67,7 @@ decodeAuthResponse = do
                 5 -> AuthenticationMD5Password . MD5Salt <$> getByteString 4
                 7 -> pure AuthenticationGSS
                 9 -> pure AuthenticationSSPI
-                8 -> AuthenticationGSSContinue <$>
-                        getByteString (fromIntegral $ len -8)
+                8 -> AuthenticationGSSContinue <$> getByteString (len - 4)
                 _ -> fail "Unknown authentication response"
         _ -> fail "Invalid auth response"
 
@@ -115,14 +108,6 @@ decodeServerMessage (Header c len) = case chr $ fromIntegral c of
         rowsCount <- fromIntegral <$> getInt16BE
         RowDescription <$> V.replicateM rowsCount decodeFieldDescription
 
--- | Decodes a single data value. Length `-1` indicates a NULL column value.
--- No value bytes follow in the NULL case.
-decodeValue :: Decode (Maybe B.ByteString)
-decodeValue = getInt32BE >>= \n ->
-    if n == -1
-    then pure Nothing
-    else Just <$> getByteString (fromIntegral n)
-
 decodeTransactionStatus :: Decode TransactionStatus
 decodeTransactionStatus =  getWord8 >>= \t ->
     case chr $ fromIntegral t of
@@ -154,7 +139,8 @@ decodeFormat = getInt16BE >>= \f ->
         1 -> pure Binary
         _ -> fail "Unknown field format"
 
--- Parser that just work with B.ByteString, not Decode type
+-----------------------------
+-- Helper parsers that work with B.ByteString, not Decode type
 
 -- Helper to parse, not used by decoder itself
 parseServerVersion :: B.ByteString -> Either B.ByteString ServerVersion
@@ -288,6 +274,7 @@ parseNoticeDesc s = do
                          "is not presented in NoticeResponse message")
                          Right . HM.lookup c
 
+-- | Helper to lift Either in Decode
 eitherToDecode :: Either B.ByteString a -> Decode a
 eitherToDecode = either (fail . BS.unpack) pure
 
