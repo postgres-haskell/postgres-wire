@@ -49,7 +49,7 @@ waitReadyForQuery conn =
   where
     handleDataMessage msg = case msg of
         (DataError e) -> do
-            -- We should wait for ReadForQuery anyway.
+            -- We should wait for ReadyForQuery anyway.
             waitReadyForQuery conn
             pure . Left $ PostgresError e
         (DataMessage _) -> error "incorrect usage waitReadyForQuery"
@@ -131,7 +131,7 @@ collectUntilReadyForQuery conn = do
     msg <- readChan $ connOutChan conn
     case msg of
         Left e               -> pure $ Left e
-        Right ReadForQuery{} -> pure $ Right []
+        Right ReadyForQuery{} -> pure $ Right []
         Right m              -> fmap (m:) <$> collectUntilReadyForQuery conn
 
 findFirstError :: [ServerMessage] -> Maybe ErrorDesc

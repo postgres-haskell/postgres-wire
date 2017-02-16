@@ -8,7 +8,7 @@ module Database.PostgreSQL.Protocol.Decoders
     , parseServerVersion
     , parseIntegerDatetimes
     , loopExtractDataRows
-    , loopParseServerMessages
+    , parseServerMessages
     ) where
 
 import           Control.Applicative
@@ -91,7 +91,8 @@ loopExtractDataRows readMoreAction callback = go "" ""
         -- On ErrorResponse we should discard all the collected datarows.
         69 -> do
             (b, newBs) <- readAtLeast bs len
-            desc <- eitherToDecode $ parseErrorDesc b
+            -- TODO handle errors
+            desc <- either (error. BS.unpack) pure $  parseErrorDesc b
             callback (DataError desc)
 
             go newBs BL.empty
@@ -142,14 +143,14 @@ loopExtractDataRows readMoreAction callback = go "" ""
             w <- byteSwap32 <$> peekByteOff (castPtr ptr) 1
             pure $ Header b $ fromIntegral (w - 4)
 
--- | Loop that parses and dispatches all server messages except `DataRow`.
-loopParseServerMessages
+-- | Parses and dispatches all server messages except `DataRow`.
+parseServerMessages
+    -- Initial buffer to parse from
+    :: B.ByteString
     -- Action that returs more data with `ByteString` prepended.
-    :: (B.ByteString -> IO B.ByteString)
-    -- Will be called on every ServerMessage.
-    -> (ServerMessage -> IO ())
-    -> IO ()
-loopParseServerMessages readMoreAction callback = go Nothing ""
+    -> (B.ByteString -> IO B.ByteString)
+    -> IO (B.ByteString, ServerMessage)
+parseServerMessages bs readMoreAction = go Nothing bs
   where
     -- Parse header
     go Nothing bs
@@ -159,13 +160,10 @@ loopParseServerMessages readMoreAction callback = go Nothing ""
     -- Parse body
     go (Just h@(Header _ len)) bs
         | B.length bs < len = readMoreAndGo (Just h) bs
-        | otherwise = let (rest, v) = runDecode (decodeServerMessage h) bs
-                      in callback v >> go Nothing rest
+        | otherwise = pure $ runDecode (decodeServerMessage h) bs
 
     {-# INLINE readMoreAndGo #-}
-    readMoreAndGo :: Maybe Header -> B.ByteString -> IO ()
     readMoreAndGo h = (go h =<<) . readMoreAction
-
 
 decodeAuthResponse :: Decode AuthResponse
 decodeAuthResponse = do
@@ -202,8 +200,8 @@ decodeServerMessage (Header c len) = case chr $ fromIntegral c of
                                 >>= eitherToDecode . parseCommandResult)
     -- Dont parse data rows here.
     'D' -> do
-        bs <- getByteString len
-        pure $ DataRow ("abcde" <> bs)
+        _ <- getByteString len
+        pure DataRow
     'I' -> pure EmptyQueryResponse
     'E' -> ErrorResponse <$>
         (getByteString len >>=
@@ -220,7 +218,7 @@ decodeServerMessage (Header c len) = case chr $ fromIntegral c of
     'S' -> ParameterStatus <$> getByteStringNull <*> getByteStringNull
     '1' -> pure ParseComplete
     's' -> pure PortalSuspended
-    'Z' -> ReadForQuery <$> decodeTransactionStatus
+    'Z' -> ReadyForQuery <$> decodeTransactionStatus
     'T' -> do
         rowsCount <- fromIntegral <$> getInt16BE
         RowDescription <$> V.replicateM rowsCount decodeFieldDescription
@@ -267,23 +265,24 @@ decodeFormat = getInt16BE >>= \f ->
 -- Parser that just work with B.ByteString, not Decode type
 
 -- Helper to parse, not used by decoder itself
-parseServerVersion :: B.ByteString -> Maybe ServerVersion
+parseServerVersion :: B.ByteString -> Either B.ByteString ServerVersion
 parseServerVersion bs =
     let (numbersStr, desc) = B.span isDigitDot bs
         numbers = readMaybe . BS.unpack <$> B.split 46 numbersStr
     in case numbers ++ repeat (Just 0) of
         (Just major : Just minor : Just rev : _) ->
-            Just $ ServerVersion major minor rev desc
-        _ -> Nothing
+            Right $ ServerVersion major minor rev desc
+        _ -> Left $ "Unknown server version" <> bs
   where
     isDigitDot c | c == 46           = True -- dot
                  | c >= 48 && c < 58 = True -- digits
                  | otherwise         = False
 
 -- Helper to parse, not used by decoder itself
-parseIntegerDatetimes :: B.ByteString -> Bool
-parseIntegerDatetimes  bs | bs == "on" || bs == "yes" || bs == "1" = True
-                          | otherwise                              = False
+parseIntegerDatetimes :: B.ByteString -> Either B.ByteString Bool
+parseIntegerDatetimes  bs
+    | bs == "on" || bs == "yes" || bs == "1" = Right True
+    | otherwise                              = Right False
 
 parseCommandResult :: B.ByteString -> Either B.ByteString CommandResult
 parseCommandResult s =
@@ -309,20 +308,21 @@ parseCommandResult s =
                        (pure . RowsCount . fromInteger . fst)
                        . readInteger . B.dropWhile (== space)
 
-parseErrorNoticeFields :: B.ByteString -> HM.HashMap Char B.ByteString
-parseErrorNoticeFields = HM.fromList
+parseErrorNoticeFields
+    :: B.ByteString -> Either B.ByteString (HM.HashMap Char B.ByteString)
+parseErrorNoticeFields = Right . HM.fromList
     . fmap (\s -> (chr . fromIntegral $ B.head s, B.tail s))
     . filter (not . B.null) . B.split 0
 
-parseErrorSeverity :: B.ByteString -> ErrorSeverity
-parseErrorSeverity bs = case bs of
+parseErrorSeverity :: B.ByteString -> Either B.ByteString ErrorSeverity
+parseErrorSeverity bs = Right $ case bs of
     "ERROR" -> SeverityError
     "FATAL" -> SeverityFatal
     "PANIC" -> SeverityPanic
     _       -> UnknownErrorSeverity
 
-parseNoticeSeverity :: B.ByteString -> NoticeSeverity
-parseNoticeSeverity bs = case bs of
+parseNoticeSeverity :: B.ByteString -> Either B.ByteString NoticeSeverity
+parseNoticeSeverity bs = Right $ case bs of
     "WARNING" -> SeverityWarning
     "NOTICE"  -> SeverityNotice
     "DEBUG"   -> SeverityDebug
@@ -332,17 +332,17 @@ parseNoticeSeverity bs = case bs of
 
 parseErrorDesc :: B.ByteString -> Either B.ByteString ErrorDesc
 parseErrorDesc s = do
-    let hm = parseErrorNoticeFields s
+    hm               <- parseErrorNoticeFields s
     errorSeverityOld <- lookupKey 'S' hm
     errorCode        <- lookupKey 'C' hm
     errorMessage     <- lookupKey 'M' hm
+    -- This is identical to the S field except that the contents are
+    -- never localized. This is present only in messages generated by
+    -- PostgreSQL versions 9.6 and later.
+    let errorSeverityNew  = HM.lookup 'V' hm
+    errorSeverity         <- parseErrorSeverity $
+                            fromMaybe errorSeverityOld errorSeverityNew
     let
-        -- This is identical to the S field except that the contents are
-        -- never localized. This is present only in messages generated by
-        -- PostgreSQL versions 9.6 and later.
-        errorSeverityNew      = HM.lookup 'V' hm
-        errorSeverity         = parseErrorSeverity $
-                                fromMaybe errorSeverityOld errorSeverityNew
         errorDetail           = HM.lookup 'D' hm
         errorHint             = HM.lookup 'H' hm
         errorPosition         = HM.lookup 'P' hm >>= fmap fst . readInt
@@ -365,17 +365,17 @@ parseErrorDesc s = do
 
 parseNoticeDesc :: B.ByteString -> Either B.ByteString NoticeDesc
 parseNoticeDesc s = do
-    let hm = parseErrorNoticeFields s
+    hm                <- parseErrorNoticeFields s
     noticeSeverityOld <- lookupKey 'S' hm
     noticeCode        <- lookupKey 'C' hm
     noticeMessage     <- lookupKey 'M' hm
+    -- This is identical to the S field except that the contents are
+    -- never localized. This is present only in messages generated by
+    -- PostgreSQL versions 9.6 and later.
+    let noticeSeverityNew = HM.lookup 'V' hm
+    noticeSeverity        <- parseNoticeSeverity $
+                            fromMaybe noticeSeverityOld noticeSeverityNew
     let
-        -- This is identical to the S field except that the contents are
-        -- never localized. This is present only in messages generated by
-        -- PostgreSQL versions 9.6 and later.
-        noticeSeverityNew      = HM.lookup 'V' hm
-        noticeSeverity         = parseNoticeSeverity $
-                                fromMaybe noticeSeverityOld noticeSeverityNew
         noticeDetail           = HM.lookup 'D' hm
         noticeHint             = HM.lookup 'H' hm
         noticePosition         = HM.lookup 'P' hm >>= fmap fst . readInt
@@ -396,6 +396,6 @@ parseNoticeDesc s = do
                          "is not presented in NoticeResponse message")
                          Right . HM.lookup c
 
-eitherToDecode :: Monad m => Either B.ByteString a -> m a
+eitherToDecode :: Either B.ByteString a -> Decode a
 eitherToDecode = either (fail . BS.unpack) pure
 

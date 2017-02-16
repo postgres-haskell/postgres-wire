@@ -52,7 +52,7 @@ newtype DataRows = DataRows BL.ByteString
 
 -- | Ad-hoc type only for data rows.
 data DataMessage
-    = DataError ErrorDesc
+    = DataError !ErrorDesc
     | DataMessage !DataRows
     -- ReadyForQuery received.
     | DataReady
@@ -159,19 +159,19 @@ data ServerMessage
     = BackendKeyData !ServerProcessId !ServerSecretKey
     | BindComplete
     | CloseComplete
-    | CommandComplete CommandResult
+    | CommandComplete !CommandResult
     -- DataRows lays in separate data type
-    | DataRow ByteString
+    | DataRow
     | EmptyQueryResponse
     | ErrorResponse !ErrorDesc
     | NoData
-    | NoticeResponse NoticeDesc
+    | NoticeResponse !NoticeDesc
     | NotificationResponse !Notification
     | ParameterDescription !(Vector Oid)
     | ParameterStatus !ByteString !ByteString -- name and value
     | ParseComplete
     | PortalSuspended
-    | ReadForQuery !TransactionStatus
+    | ReadyForQuery !TransactionStatus
     | RowDescription !(Vector FieldDescription)
     deriving (Show)
 

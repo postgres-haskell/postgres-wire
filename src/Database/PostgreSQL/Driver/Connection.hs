@@ -124,13 +124,14 @@ authorize rawConn settings = do
     readAuthResponse
   where
     readAuthResponse = do
-        -- 4096 should be enough for the whole response from a server at
+        -- 1024 should be enough for the auth response from a server at
         -- the startup phase.
-        resp <- rReceive rawConn 4096
+        resp <- rReceive rawConn 1024
         case runDecode decodeAuthResponse resp of
             (rest, r) -> case r of
                 AuthenticationOk ->
-                    pure $ parseParameters rest
+                    parseParameters
+                        (\bs -> (bs <>) <$> rReceive rawConn 1024) rest
                 AuthenticationCleartextPassword ->
                     performPasswordAuth makePlainPassword
                 AuthenticationMD5Password (MD5Salt salt) ->
@@ -183,32 +184,35 @@ buildConnection rawConn connParams receiverAction = do
             }
 
 -- | Parses connection parameters.
-parseParameters :: B.ByteString -> Either Error ConnectionParameters
-parseParameters str = do
-    dict <- go str HM.empty
+parseParameters :: (B.ByteString -> IO B.ByteString)
+    -> B.ByteString -> IO (Either Error ConnectionParameters)
+parseParameters action str = Right <$> do
+    dict <- parseDict str HM.empty
     -- TODO handle error
-    serverVersion    <- maybe (error "handle error") Right .
-                        parseServerVersion =<< lookupKey "server_version" dict
+    serverVersion    <- eitherToErr .  parseServerVersion =<<
+                            lookupKey "server_version" dict
     serverEncoding   <- lookupKey "server_encoding" dict
-    integerDatetimes <- parseIntegerDatetimes <$>
+    integerDatetimes <- eitherToErr . parseIntegerDatetimes =<<
                             lookupKey "integer_datetimes" dict
-    pure ConnectionParameters
+    pure  ConnectionParameters
         { paramServerVersion    = serverVersion
         , paramIntegerDatetimes = integerDatetimes
         , paramServerEncoding   = serverEncoding
         }
   where
+    eitherToErr = either (error . BS.unpack) pure
+    parseDict bs dict = do
+        (rest, v) <- parseServerMessages bs action
+        case v of
+            ParameterStatus name value
+                -> parseDict rest $ HM.insert name value dict
+            ReadyForQuery _ -> pure dict
+            _ -> parseDict rest dict
+
     lookupKey key = maybe
         -- TODO
-        (error "handle errors") Right
+        (error "handle errors") pure
         . HM.lookup key
-    go str dict | B.null str = Right dict
-                | otherwise = case runDecode
-                    (decodeHeader >>= decodeServerMessage) str of
-        (rest, v) -> case v of
-            ParameterStatus name value -> go rest $ HM.insert name value dict
-            -- messages like `BackendData` not handled
-            _                          -> go rest dict
 
 handshakeTls :: RawConnection ->  IO ()
 handshakeTls _ = pure ()
@@ -235,13 +239,15 @@ receiverThreadCommon
     -> ServerMessageFilter
     -> NotificationHandler
     -> IO ()
-receiverThreadCommon rawConn chan msgFilter ntfHandler =
-    loopParseServerMessages
-        -- TODO
-        -- dont append strings. Allocate buffer manually and use unsafeReceive
-        (\bs -> (bs <>) <$> rReceive rawConn 4096)
-        handler
+receiverThreadCommon rawConn chan msgFilter ntfHandler = go ""
   where
+    go bs = do
+        (rest, msg) <- parseServerMessages bs readMoreAction
+        handler msg >> go rest
+
+    -- TODO
+    -- dont append strings. Allocate buffer manually and use unsafeReceive
+    readMoreAction = (\bs -> (bs <>) <$> rReceive rawConn 4096)
     handler msg = do
         dispatchIfNotification msg ntfHandler
         when (msgFilter msg) $ writeChan chan $ Right msg
@@ -284,7 +290,7 @@ defaultFilter msg = case msg of
     -- messages affecting data handled in dispatcher
     PortalSuspended        -> False
     -- to know when command processing is finished
-    ReadForQuery{}         -> True
+    ReadyForQuery{}         -> True
     -- as result for `describe` message
     RowDescription{}       -> True
 

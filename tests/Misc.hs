@@ -24,6 +24,6 @@ testParseServerVersion = traverse_ testSingle
     ]
   where
     testSingle (str, result) = case parseServerVersion str of
-        Nothing -> assertFailure "Should be Right, got error "
-        Just v -> result @=? v
+        Left _ -> assertFailure "Should be Right, got error "
+        Right v -> result @=? v
 
