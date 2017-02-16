@@ -124,7 +124,7 @@ testExtendedQueryNoData = withConnectionCommonAll $ \c -> do
 
 -- | Assert that list contains element satisfies predicat.
 assertContains
-    :: Either ReceiverException [ServerMessage]
+    :: Either Error [ServerMessage]
     -> (ServerMessage -> Bool)
     -> String -> Assertion
 assertContains (Left e) _ _ = assertFailure $ "Got Error" ++ show e
@@ -132,7 +132,7 @@ assertContains (Right msgs) f name =
         assertBool ("Does not contain" ++ name) $ any f msgs
 
 -- | Assert there are on `ErrorResponse` in the list.
-assertNoErrorResponse :: Either ReceiverException [ServerMessage] -> Assertion
+assertNoErrorResponse :: Either Error [ServerMessage] -> Assertion
 assertNoErrorResponse (Left e) = assertFailure $ "Got Error" ++ show e
 assertNoErrorResponse (Right msgs) =
     assertBool "Occured ErrorResponse" $ all (not . isError) msgs

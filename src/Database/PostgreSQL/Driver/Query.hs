@@ -40,11 +40,10 @@ sendSync conn = sendEncode conn $ encodeClientMessage Sync
 sendSimpleQuery :: ConnectionCommon -> B.ByteString -> IO (Either Error ())
 sendSimpleQuery conn q = do
     sendMessage (connRawConnection conn) $ SimpleQuery (StatementSQL q)
-    checkErrors <$> collectUntilReadyForQuery conn
+    (checkErrors =<<) <$> collectUntilReadyForQuery conn
   where
-    checkErrors = either
-        (Left . ReceiverError)
-        (maybe (Right ()) (Left . PostgresError) . findFirstError)
+    checkErrors = 
+        maybe (Right ()) (Left . PostgresError) . findFirstError
 
 waitReadyForQuery :: Connection -> IO (Either Error ())
 waitReadyForQuery conn =
@@ -56,8 +55,8 @@ waitReadyForQuery conn =
             -- We should wait for ReadyForQuery anyway.
             waitReadyForQuery conn
             pure . Left $ PostgresError e
-            -- TODO
-        (DataMessage _) -> error "incorrect usage waitReadyForQuery"
+        (DataMessage _)   -> throwIncorrectUsage
+            "Expected ReadyForQuery, but got DataRow message"
         DataReady        -> pure $ Right ()
 
 -- | Public
@@ -69,8 +68,8 @@ readNextData conn =
     handleDataMessage msg = case msg of
         (DataError e)      -> pure . Left $ PostgresError e
         (DataMessage rows) -> pure . Right $ rows
-        -- TODO
-        DataReady           -> error "incorrect usage readNextData"
+        DataReady          -> throwIncorrectUsage
+            "Expected DataRow message, but got ReadyForQuery"
 
 -- Helper
 sendBatchEndBy :: ClientMessage -> Connection -> [Query] -> IO ()
@@ -115,7 +114,7 @@ describeStatement conn stmt = do
            encodeClientMessage (Parse sname (StatementSQL stmt) V.empty)
         <> encodeClientMessage (DescribeStatement sname)
         <> encodeClientMessage Sync
-    msgs <- first ReceiverError <$> collectUntilReadyForQuery conn
+    msgs <-  collectUntilReadyForQuery conn
     either (pure . Left) parseMessages msgs
   where
     sname = StatementName ""
@@ -132,11 +131,11 @@ describeStatement conn stmt = do
 -- Collects all messages preceding `ReadyForQuery`
 collectUntilReadyForQuery
     :: ConnectionCommon
-    -> IO (Either ReceiverException [ServerMessage])
+    -> IO (Either Error [ServerMessage])
 collectUntilReadyForQuery conn = do
     msg <- readChan $ connOutChan conn
     case msg of
-        Left e                -> pure $ Left e
+        Left e                -> pure $ Left $ ReceiverError e
         Right ReadyForQuery{} -> pure $ Right []
         Right m               -> fmap (m:) <$> collectUntilReadyForQuery conn
 

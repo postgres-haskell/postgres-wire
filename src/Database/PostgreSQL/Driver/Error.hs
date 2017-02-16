@@ -13,7 +13,12 @@ import Database.PostgreSQL.Protocol.Types (ErrorDesc)
 --   ProtocolException
 --   IncorrectUsage.
 
-data IncorrectUsage = IncorrectUsage
+newtype IncorrectUsage = IncorrectUsage ByteString
+    deriving (Show)
+
+instance Exception IncorrectUsage where
+    displayException (IncorrectUsage msg) =
+        "Incorrect usage: " ++ BS.unpack msg
 
 newtype ProtocolException = ProtocolException ByteString
     deriving (Show)
@@ -21,6 +26,9 @@ newtype ProtocolException = ProtocolException ByteString
 instance Exception ProtocolException where
     displayException (ProtocolException msg) =
         "Exception in protocol, " ++ BS.unpack msg
+
+throwIncorrectUsage :: ByteString -> IO a
+throwIncorrectUsage = throwIO . IncorrectUsage
 
 throwProtocolEx :: ByteString -> IO a
 throwProtocolEx = throwIO . ProtocolException
