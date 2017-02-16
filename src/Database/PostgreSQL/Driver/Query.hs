@@ -33,6 +33,10 @@ sendBatchAndSync :: Connection -> [Query] -> IO ()
 sendBatchAndSync = sendBatchEndBy Sync
 
 -- | Public
+sendSync :: Connection -> IO ()
+sendSync = sendEncode conn $ encodeClientMessage Sync
+
+-- | Public
 sendSimpleQuery :: ConnectionCommon -> B.ByteString -> IO (Either Error ())
 sendSimpleQuery conn q = do
     sendMessage (connRawConnection conn) $ SimpleQuery (StatementSQL q)
