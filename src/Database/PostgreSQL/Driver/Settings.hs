@@ -1,4 +1,8 @@
-module Database.PostgreSQL.Driver.Settings where
+module Database.PostgreSQL.Driver.Settings 
+    ( ConnectionSettings(..)
+    , TlsMode
+    , defaultConnectionSettings
+    ) where
 
 import Data.Word (Word16)
 import Data.ByteString (ByteString)

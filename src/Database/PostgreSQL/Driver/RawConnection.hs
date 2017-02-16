@@ -1,5 +1,8 @@
 {-# language FlexibleContexts #-}
-module Database.PostgreSQL.Driver.RawConnection where
+module Database.PostgreSQL.Driver.RawConnection 
+    ( RawConnection(..)
+    , createRawConnection
+    ) where
 
 import Control.Monad (void)
 import Control.Exception (bracketOnError, try)

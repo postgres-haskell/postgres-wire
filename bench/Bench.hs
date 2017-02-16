@@ -17,6 +17,7 @@ import Control.DeepSeq
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.Encoders
 import Database.PostgreSQL.Protocol.Decoders
+import Database.PostgreSQL.Protocol.ExtractDataRows
 import Database.PostgreSQL.Driver.Connection
 import Database.PostgreSQL.Driver
 import Criterion.Main

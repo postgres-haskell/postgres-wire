@@ -1,26 +1,41 @@
-module Database.PostgreSQL.Driver.Connection where
+module Database.PostgreSQL.Driver.Connection 
+    ( -- * Connection types
+      AbsConnection(..)
+    , Connection
+    , ConnectionCommon
+    , ServerMessageFilter
+    , NotificationHandler
+    -- * Connection parameters
+    , getServerVersion
+    , getServerEncoding
+    , getIntegerDatetimes
+    -- * Work with connection
+    , connect
+    , connectCommon
+    , connectCommon'
+    , sendStartMessage
+    , sendMessage
+    , sendEncode
+    , close
+    -- * Useful for testing
+    , defaultNotificationHandler
+    , filterAllowedAll
+    , defaultFilter
+    ) where
 
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Char8 as BS(pack, unpack)
-import qualified Data.ByteString.Lazy as BL
-import Data.ByteString.Lazy (toStrict)
-import Data.ByteString.Builder (Builder, toLazyByteString)
-import Control.Monad
-import System.Mem.Weak (Weak, deRefWeak)
-import Data.Traversable
-import Data.Foldable
-import Control.Applicative
-import Control.Exception
-import GHC.Conc (labelThread)
-import Data.IORef
-import Data.Monoid
+import Data.Monoid ((<>))
+import Control.Monad (void, when)
 import Control.Concurrent (forkIOWithUnmask, killThread, ThreadId, threadDelay
                           , mkWeakThreadId)
-import qualified Data.Vector as V
-import Control.Concurrent.STM.TQueue
-import Control.Concurrent.STM
-import qualified Data.HashMap.Strict as HM
+import Control.Concurrent.STM.TQueue (TQueue, writeTQueue, newTQueueIO)
+import Control.Concurrent.STM (atomically)
+import Control.Exception (SomeException, bracketOnError, catch, mask_)
+import GHC.Conc (labelThread)
 import Crypto.Hash (hash, Digest, MD5)
+import System.Mem.Weak (Weak, deRefWeak)
+import qualified Data.HashMap.Strict as HM
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as BS(pack, unpack)
 
 import Database.PostgreSQL.Protocol.Encoders
 import Database.PostgreSQL.Protocol.Decoders
@@ -50,12 +65,8 @@ type ConnectionCommon = AbsConnection ServerMessage
 type InDataChan = TQueue (Either ReceiverException DataMessage)
 type InAllChan  = TQueue (Either ReceiverException ServerMessage)
 
-
-writeChan :: TQueue a -> a -> IO ()
-writeChan q = atomically . writeTQueue q
-
-readChan :: TQueue a -> IO a
-readChan = atomically . readTQueue
+type ServerMessageFilter = ServerMessage -> Bool
+type NotificationHandler = Notification -> IO ()
 
 -- | Parameters of the current connection.
 -- We store only the parameters that cannot change after startup.
@@ -69,12 +80,19 @@ data ConnectionParameters = ConnectionParameters
     , paramIntegerDatetimes :: Bool
     } deriving (Show)
 
+-- Getting information about connection
 
-type ServerMessageFilter = ServerMessage -> Bool
-type NotificationHandler = Notification -> IO ()
+-- | Returns a server version of the current connection.
+getServerVersion :: AbsConnection c -> ServerVersion
+getServerVersion = paramServerVersion . connParameters
 
-defaultNotificationHandler :: NotificationHandler
-defaultNotificationHandler = const $ pure ()
+-- | Returns a server encoding of the current connection.
+getServerEncoding :: AbsConnection c -> B.ByteString
+getServerEncoding = paramServerEncoding . connParameters
+
+-- | Returns whether server uses integer datetimes.
+getIntegerDatetimes :: AbsConnection c -> Bool
+getIntegerDatetimes = paramIntegerDatetimes . connParameters
 
 -- | Public
 connect :: ConnectionSettings -> IO (Either Error Connection)
@@ -97,6 +115,21 @@ connectCommon' settings msgFilter = connectWith settings $ \rawConn params ->
     buildConnection rawConn params
         (\chan -> receiverThreadCommon rawConn chan
                     msgFilter defaultNotificationHandler)
+
+-- Low-level sending functions
+
+sendStartMessage :: RawConnection -> StartMessage -> IO ()
+sendStartMessage rawConn msg = void $
+    rSend rawConn . runEncode $ encodeStartMessage msg
+
+-- Only for testings and simple queries
+sendMessage :: RawConnection -> ClientMessage -> IO ()
+sendMessage rawConn msg = void $
+    rSend rawConn . runEncode $ encodeClientMessage msg
+
+sendEncode :: AbsConnection c -> Encode -> IO ()
+sendEncode conn = void . rSend (connRawConnection conn) . runEncode
+
 
 connectWith
     :: ConnectionSettings
@@ -222,7 +255,7 @@ close conn = do
     maybe (pure ()) killThread =<< deRefWeak (connReceiverThread conn)
     rClose $ connRawConnection conn
 
--- | Any exception prevents thread from future work
+-- | Any exception prevents thread from future work.
 receiverThread :: RawConnection -> InDataChan -> IO ()
 receiverThread rawConn dataChan = loopExtractDataRows
     -- TODO
@@ -230,7 +263,7 @@ receiverThread rawConn dataChan = loopExtractDataRows
     (\bs -> (bs <>) <$> rReceive rawConn 4096)
     (writeChan dataChan . Right)
 
--- | Any exception prevents thread from future work
+-- | Any exception prevents thread from future work.
 receiverThreadCommon
     :: RawConnection
     -> InAllChan
@@ -252,6 +285,9 @@ receiverThreadCommon rawConn chan msgFilter ntfHandler = go ""
 
     dispatchIfNotification (NotificationResponse ntf) handler = handler ntf
     dispatchIfNotification _ _ = pure ()
+
+defaultNotificationHandler :: NotificationHandler
+defaultNotificationHandler = const $ pure ()
 
 -- | For testings purposes.
 filterAllowedAll :: ServerMessageFilter
@@ -292,29 +328,7 @@ defaultFilter msg = case msg of
     -- as result for `describe` message
     RowDescription{}       -> True
 
--- Low-level sending functions
-
-sendStartMessage :: RawConnection -> StartMessage -> IO ()
-sendStartMessage rawConn msg = void $
-    rSend rawConn . runEncode $ encodeStartMessage msg
-
--- Only for testings and simple queries
-sendMessage :: RawConnection -> ClientMessage -> IO ()
-sendMessage rawConn msg = void $
-    rSend rawConn . runEncode $ encodeClientMessage msg
-
-sendEncode :: AbsConnection c -> Encode -> IO ()
-sendEncode conn = void . rSend (connRawConnection conn) . runEncode
-
-
--- Information about connection
-
-getServerVersion :: AbsConnection c -> ServerVersion
-getServerVersion = paramServerVersion . connParameters
-
-getServerEncoding :: AbsConnection c -> B.ByteString
-getServerEncoding = paramServerEncoding . connParameters
-
-getIntegerDatetimes :: AbsConnection c -> Bool
-getIntegerDatetimes = paramIntegerDatetimes . connParameters
+-- | Helper to read from queue.
+writeChan :: TQueue a -> a -> IO ()
+writeChan q = atomically . writeTQueue q
 
