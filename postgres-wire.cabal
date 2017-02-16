@@ -28,6 +28,7 @@ library
                      , Database.PostgreSQL.Protocol.Types
                      , Database.PostgreSQL.Protocol.Encoders
                      , Database.PostgreSQL.Protocol.Decoders
+                     , Database.PostgreSQL.Protocol.ExtractDataRows
                      , Database.PostgreSQL.Protocol.Store.Encode
                      , Database.PostgreSQL.Protocol.Store.Decode
   other-modules:       Database.PostgreSQL.Protocol.Utils

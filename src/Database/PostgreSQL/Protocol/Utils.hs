@@ -2,7 +2,7 @@
 module Database.PostgreSQL.Protocol.Utils where
 
 import Foreign.C.Types          (CInt, CSize(..), CChar)
-import Foreign (Ptr, peek, alloca)
+import Foreign                  (Ptr, peek, alloca)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Unsafe as B
 
@@ -11,8 +11,8 @@ data ScanRowResult = ScanRowResult
     {-# UNPACK #-} !B.ByteString  -- the rest of string
     {-# UNPACK #-} !Int           -- reason code
 
-{-# INLINE scanDataRows #-}
 -- | Scans `ByteString` for a chunk of `DataRow`s.
+{-# INLINE scanDataRows #-}
 scanDataRows :: B.ByteString -> IO ScanRowResult
 scanDataRows bs =
     alloca $ \reasonPtr ->

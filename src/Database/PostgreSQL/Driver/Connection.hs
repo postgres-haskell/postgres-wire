@@ -24,6 +24,7 @@ import Crypto.Hash (hash, Digest, MD5)
 
 import Database.PostgreSQL.Protocol.Encoders
 import Database.PostgreSQL.Protocol.Decoders
+import Database.PostgreSQL.Protocol.ExtractDataRows
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.Store.Encode (runEncode, Encode)
 import Database.PostgreSQL.Protocol.Store.Decode (runDecode)
@@ -200,7 +201,7 @@ parseParameters action str = Right <$> do
         }
   where
     parseDict bs dict = do
-        (rest, v) <- parseServerMessages bs action
+        (rest, v) <- decodeNextServerMessage bs action
         case v of
             ParameterStatus name value
                 -> parseDict rest $ HM.insert name value dict
@@ -239,7 +240,7 @@ receiverThreadCommon
 receiverThreadCommon rawConn chan msgFilter ntfHandler = go ""
   where
     go bs = do
-        (rest, msg) <- parseServerMessages bs readMoreAction
+        (rest, msg) <- decodeNextServerMessage bs readMoreAction
         handler msg >> go rest
 
     -- TODO
