@@ -2,16 +2,31 @@ module Database.PostgreSQL.Driver.Error where
 
 import Control.Exception
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as BS
 import System.Socket (AddressInfoException)
 
 import Database.PostgreSQL.Protocol.Types (ErrorDesc)
 
 -- All possible exceptions:
 --   SocketException
---   DecodeException.
+--   PeekException.
+--   ProtocolException
 --   IncorrectUsage.
 
 data IncorrectUsage = IncorrectUsage
+
+newtype ProtocolException = ProtocolException ByteString
+    deriving (Show)
+
+instance Exception ProtocolException where
+    displayException (ProtocolException msg) =
+        "Exception in protocol, " ++ BS.unpack msg
+
+throwProtocolEx :: ByteString -> IO a
+throwProtocolEx = throwIO . ProtocolException
+
+eitherToProtocolEx :: Either ByteString a -> IO a
+eitherToProtocolEx = either throwProtocolEx pure
 
 -- All possible errors.
 data Error

@@ -188,11 +188,10 @@ parseParameters :: (B.ByteString -> IO B.ByteString)
     -> B.ByteString -> IO (Either Error ConnectionParameters)
 parseParameters action str = Right <$> do
     dict <- parseDict str HM.empty
-    -- TODO handle error
-    serverVersion    <- eitherToErr .  parseServerVersion =<<
+    serverVersion    <- eitherToProtocolEx  .  parseServerVersion =<<
                             lookupKey "server_version" dict
     serverEncoding   <- lookupKey "server_encoding" dict
-    integerDatetimes <- eitherToErr . parseIntegerDatetimes =<<
+    integerDatetimes <- eitherToProtocolEx  . parseIntegerDatetimes =<<
                             lookupKey "integer_datetimes" dict
     pure  ConnectionParameters
         { paramServerVersion    = serverVersion
@@ -200,7 +199,6 @@ parseParameters action str = Right <$> do
         , paramServerEncoding   = serverEncoding
         }
   where
-    eitherToErr = either (error . BS.unpack) pure
     parseDict bs dict = do
         (rest, v) <- parseServerMessages bs action
         case v of
@@ -210,9 +208,8 @@ parseParameters action str = Right <$> do
             _ -> parseDict rest dict
 
     lookupKey key = maybe
-        -- TODO
-        (error "handle errors") pure
-        . HM.lookup key
+        (throwProtocolEx $ "Required parameter status missing: " <> key)
+        pure . HM.lookup key
 
 handshakeTls :: RawConnection ->  IO ()
 handshakeTls _ = pure ()

@@ -34,7 +34,7 @@ sendBatchAndSync = sendBatchEndBy Sync
 
 -- | Public
 sendSync :: Connection -> IO ()
-sendSync = sendEncode conn $ encodeClientMessage Sync
+sendSync conn = sendEncode conn $ encodeClientMessage Sync
 
 -- | Public
 sendSimpleQuery :: ConnectionCommon -> B.ByteString -> IO (Either Error ())
@@ -56,6 +56,7 @@ waitReadyForQuery conn =
             -- We should wait for ReadyForQuery anyway.
             waitReadyForQuery conn
             pure . Left $ PostgresError e
+            -- TODO
         (DataMessage _) -> error "incorrect usage waitReadyForQuery"
         DataReady        -> pure $ Right ()
 
@@ -68,6 +69,7 @@ readNextData conn =
     handleDataMessage msg = case msg of
         (DataError e)      -> pure . Left $ PostgresError e
         (DataMessage rows) -> pure . Right $ rows
+        -- TODO
         DataReady           -> error "incorrect usage readNextData"
 
 -- Helper
@@ -113,19 +115,19 @@ describeStatement conn stmt = do
            encodeClientMessage (Parse sname (StatementSQL stmt) V.empty)
         <> encodeClientMessage (DescribeStatement sname)
         <> encodeClientMessage Sync
-    (parseMessages =<<) . first ReceiverError <$> collectUntilReadyForQuery conn
+    msgs <- first ReceiverError <$> collectUntilReadyForQuery conn
+    either (pure . Left) parseMessages msgs
   where
     sname = StatementName ""
     parseMessages msgs = case msgs of
         [ParameterDescription params, NoData]
-            -> Right (params, V.empty)
+            -> pure $ Right (params, V.empty)
         [ParameterDescription params, RowDescription fields]
-            -> Right (params, fields)
-        xs  -> Left . maybe
-            -- todo handle error
-             (error "handle decode error")
-             PostgresError
-            $ findFirstError xs
+            -> pure $ Right (params, fields)
+        xs  -> maybe
+              (throwProtocolEx "Unexpected response on describe message")
+              (pure . Left . PostgresError)
+              $ findFirstError xs
 
 -- Collects all messages preceding `ReadyForQuery`
 collectUntilReadyForQuery
@@ -134,9 +136,9 @@ collectUntilReadyForQuery
 collectUntilReadyForQuery conn = do
     msg <- readChan $ connOutChan conn
     case msg of
-        Left e               -> pure $ Left e
+        Left e                -> pure $ Left e
         Right ReadyForQuery{} -> pure $ Right []
-        Right m              -> fmap (m:) <$> collectUntilReadyForQuery conn
+        Right m               -> fmap (m:) <$> collectUntilReadyForQuery conn
 
 findFirstError :: [ServerMessage] -> Maybe ErrorDesc
 findFirstError []                       = Nothing
