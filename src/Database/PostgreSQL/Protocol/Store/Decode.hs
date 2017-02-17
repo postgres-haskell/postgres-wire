@@ -24,10 +24,11 @@ runDecode (Decode dec) bs =
 {-# INLINE runDecode #-}
 
 fixed :: Int -> (Ptr Word8 -> IO a) -> Decode a
-fixed len f = Decode . Peek $ \ps ptr -> do
+fixed len f = Decode $ Peek $ \ps ptr -> do
     !v <- f ptr
     let !newPtr = ptr `plusPtr` len
     return (newPtr, v)
+    -- return $ PeekResult newPtr v
 {-# INLINE fixed #-}
 
 getByte :: Decode Word8
@@ -50,20 +51,25 @@ getFourBytes = fixed 4 $ \ptr -> do
     return (b1, b2, b3, b4)
 {-# INLINE getFourBytes #-}
 
+skipBytes :: Int -> Decode ()
+skipBytes n = fixed n $ const $ pure ()
+
 -----------
 -- Public
 
 getByteString :: Int -> Decode B.ByteString
-getByteString len = Decode . Peek $ \ps ptr -> do
+getByteString len = Decode $ Peek $ \ps ptr -> do
     bs <- B.packCStringLen (castPtr ptr, len)
     let !newPtr = ptr `plusPtr` len
+    -- return $ PeekResult newPtr bs
     return (newPtr, bs)
 {-# INLINE getByteString #-}
 
 getByteStringNull :: Decode B.ByteString
-getByteStringNull = Decode . Peek $ \ps ptr -> do
+getByteStringNull = Decode $ Peek $ \ps ptr -> do
     bs <- B.packCString (castPtr ptr)
     let !newPtr = ptr `plusPtr` (B.length bs + 1)
+    -- return $ PeekResult newPtr bs
     return (newPtr, bs)
 {-# INLINE getByteStringNull #-}
 
@@ -72,19 +78,11 @@ getWord8 = getByte
 {-# INLINE getWord8 #-}
 
 getWord16BE :: Decode Word16
-getWord16BE = do
-    (w1, w2) <- getTwoBytes
-    pure $ fromIntegral w1 * 256 +
-           fromIntegral w2
+getWord16BE = fixed 2 $ \ptr -> byteSwap16 <$> peek (castPtr ptr)
 {-# INLINE getWord16BE #-}
 
 getWord32BE :: Decode Word32
-getWord32BE = do
-    (w1, w2, w3, w4) <- getFourBytes
-    pure $ fromIntegral w1 * 256 *256 *256 +
-           fromIntegral w2 * 256 *256 +
-           fromIntegral w3 * 256 +
-           fromIntegral w4
+getWord32BE = fixed 4 $ \ptr -> byteSwap32 <$> peek (castPtr ptr)
 {-# INLINE getWord32BE #-}
 
 getInt16BE :: Decode Int16

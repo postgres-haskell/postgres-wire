@@ -8,15 +8,22 @@ import Data.ByteString.Builder (toLazyByteString)
 import Data.ByteString (ByteString)
 import Data.Vector as V(fromList, empty)
 import Data.IORef
+import Data.Foldable
+import Data.Maybe
 import Control.Concurrent
 import Control.Applicative
 import Control.Monad
 import Data.Monoid
 import Control.DeepSeq
+import System.IO.Unsafe
+
+import qualified Database.PostgreSQL.LibPQ as LibPQ
 
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.Encoders
 import Database.PostgreSQL.Protocol.Decoders
+import Database.PostgreSQL.Protocol.Store.Decode
+import Database.PostgreSQL.Protocol.Codecs.Decoders
 import Database.PostgreSQL.Protocol.ExtractDataRows
 import Database.PostgreSQL.Driver.Connection
 import Database.PostgreSQL.Driver
@@ -26,6 +33,7 @@ import Criterion.Main
 -- CREATE TABLE _bytes_400_of_200(b bytea);
 -- CREATE TABLE _bytes_10_of_20k(b bytea);
 -- CREATE TABLE _bytes_1_of_200(b bytea);
+-- CREATE TABLE _bytes_300_of_100(b bytea);
 
 -- INSERT INTO _bytes_100_of_1k(b)
 --   (SELECT repeat('a', 1000)::bytea FROM generate_series(1, 100));
@@ -34,12 +42,26 @@ import Criterion.Main
 -- INSERT INTO _bytes_10_of_20k(b)
 --   (SELECT repeat('a', 20000)::bytea FROM generate_series(1, 10));
 -- INSERT INTO _bytes_1_of_200(b) VALUES(repeat('a', 200)::bytea);
+-- INSERT INTO _bytes_300_of_100(b)
+--  (SELECT repeat('a', 100)::bytea FROM generate_series(1, 300));
 
-main = defaultMain
-    [ bgroup "Requests"
-        [ env createConnection (\c -> bench "100 of 1k" . nfIO $ requestAction c)
-        ]
-    ]
+-- main = benchMultiPw
+-- main = defaultMain
+--     [ bgroup "Requests"
+--         [ 
+--             -- env createConnection (\c -> bench "100 of 1k" . nfIO $ requestAction c)
+--             bench "parser" $ nf parse bs
+--         ]
+--     ]
+main = benchMultiPw
+
+{-# NOINLINE bs #-}
+bs :: B.ByteString
+bs = unsafePerformIO $ B.readFile "1.txt"
+
+parse bs | B.null bs = ()
+         | otherwise = let (rest, v) = runDecode getCustomRow bs
+                       in v `seq` parse rest
 
 benchLoop :: IO ()
 benchLoop = do
@@ -96,7 +118,21 @@ benchMultiPw = benchRequests createConnection $ \c -> do
             waitReadyForQuery c
   where
     q = Query largeStmt V.empty Binary Binary AlwaysCache
-    largeStmt = "SELECT * from _bytes_400_of_200"
+    largeStmt = "SELECT * from _bytes_300_of_100"
+
+benchLibpq :: IO ()
+benchLibpq = benchRequests libpqConnection $ \c -> do
+    r <- fromJust <$> LibPQ.execPrepared c "" [] LibPQ.Binary
+    rows <- LibPQ.ntuples r
+    go r (rows - 1)
+  where
+    libpqConnection = do
+        conn <- LibPQ.connectdb "host=localhost user=postgres dbname=travis_test"
+        LibPQ.prepare conn "" "SELECT * from _bytes_300_of_100" Nothing
+        pure conn
+    go r (-1) = pure ()
+    go r n = LibPQ.getvalue r n 0 >> go r (n - 1)
+
 
 -- Connection
 -- | Creates connection with default filter.

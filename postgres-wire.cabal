@@ -31,6 +31,7 @@ library
                      , Database.PostgreSQL.Protocol.ExtractDataRows
                      , Database.PostgreSQL.Protocol.Store.Encode
                      , Database.PostgreSQL.Protocol.Store.Decode
+                     , Database.PostgreSQL.Protocol.Codecs.Decoders
   other-modules:       Database.PostgreSQL.Protocol.Utils
   build-depends:       base >= 4.7 && < 5
                      , bytestring
@@ -107,6 +108,7 @@ benchmark postgres-wire-bench
                      , vector
                      , criterion
                      , deepseq
+                     , postgresql-libpq
   ghc-options: -O2 -threaded -rtsopts -with-rtsopts=-s 
   default-language:    Haskell2010
   default-extensions:  
