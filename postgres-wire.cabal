@@ -1,11 +1,11 @@
 name:                postgres-wire
 version:             0.1.0.0
-synopsis:            A pure Haskell implementation of Postgres protocol v3.0
+synopsis:            A native Haskell driver for PostgreSQL
 description:         Please see README.md
 homepage:            https://github.com/postgres-haskell/postgres-wire#readme
 license:             MIT
 license-file:        LICENSE
-author:              Vyacheslav Hashov
+author:              Vyacheslav Hashov, Anton Gushcha
 maintainer:          vyacheslavhashov@gmail.com
 copyright:           2017 Vyacheslav Hashov
 category:            Web
