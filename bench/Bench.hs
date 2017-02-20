@@ -8,6 +8,7 @@ import Data.ByteString.Builder (toLazyByteString)
 import Data.ByteString (ByteString)
 import Data.Vector as V(fromList, empty)
 import Data.IORef
+import Data.Int
 import Data.Foldable
 import Data.Maybe
 import Control.Concurrent
@@ -16,6 +17,7 @@ import Control.Monad
 import Data.Monoid
 import Control.DeepSeq
 import System.IO.Unsafe
+import System.Clock
 
 import qualified Database.PostgreSQL.LibPQ as LibPQ
 
@@ -91,17 +93,26 @@ benchRequests :: IO c -> (c -> IO a) -> IO ()
 benchRequests connectAction queryAction = do
     rs <- replicateM 8 newThread
     threadDelay 10000000
-    traverse (killThread . snd) rs
-    s <- sum <$> traverse (readIORef . fst) rs
+    traverse (\(_,_, tid) -> killThread tid) rs
+    s <- sum <$> traverse (\(ref, _, _) -> readIORef ref) rs
+    latency_total <- sum <$> traverse (\(_, ref, _) -> readIORef ref) rs
     print $ "Requests: " ++ show s
+    print $ "Average latency: " ++ show (latency_total `div` fromIntegral s)
   where
     newThread  = do
-        ref <- newIORef 0 :: IO (IORef Word)
+        ref_count <- newIORef 0 :: IO (IORef Word)
+        ref_latency <- newIORef 0 :: IO (IORef Int64)
         c <- connectAction
         tid <- forkIO $ forever $ do
+            t1 <- getTime Monotonic
             queryAction c
-            modifyIORef' ref (+1)
-        pure (ref, tid)
+            t2 <- getTime Monotonic
+            modifyIORef' ref_latency (+ (getDifference t2 t1))
+            modifyIORef' ref_count (+1)
+        pure (ref_count, ref_latency, tid)
+
+getDifference (TimeSpec end_s end_ns) (TimeSpec start_s start_ns) = 
+    (end_s - start_s) * 1000000000 + end_ns - start_ns
 
 requestAction c = replicateM_ 100 $ do
             sendBatchAndSync c [q]
