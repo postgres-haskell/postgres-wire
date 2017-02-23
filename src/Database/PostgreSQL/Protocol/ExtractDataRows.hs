@@ -73,7 +73,6 @@ loopExtractDataRows readMoreAction callback = go "" ""
         -- On ErrorResponse we should discard all the collected datarows.
         69 -> do
             (b, newBs) <- readAtLeast bs len
-            -- TODO handle errors
             desc <- eitherToProtocolEx $  parseErrorDesc b
             callback (DataError desc)
 
