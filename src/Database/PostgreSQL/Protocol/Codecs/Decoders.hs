@@ -1,55 +1,55 @@
 module Database.PostgreSQL.Protocol.Codecs.Decoders where
 
+import Data.Bool
 import Data.Word
 import Data.Int
 import Data.Char
 import Control.Monad
 import qualified Data.ByteString as B
+import qualified Data.Vector as V
 
 import Database.PostgreSQL.Protocol.Store.Decode
+import Database.PostgreSQL.Protocol.Store.Encode
+import Database.PostgreSQL.Protocol.Types
 
-{-# INLINE skipHeader #-}
-skipHeader :: Decode ()
-skipHeader = skipBytes 7
+skipDataRowHeader :: Decode ()
+skipDataRowHeader = skipBytes 7
 
-{-# INLINE getNullable #-}
-getNullable :: Decode a -> Decode (Maybe a)
+fieldLength :: Decode Int
+fieldLength = fromIntegral <$> getInt32BE
+
+getNonNullable :: FieldDecoder a -> Decode a
+getNonNullable dec = fieldLength >>= runFieldDecoder dec
+
+getNullable :: FieldDecoder a -> Decode (Maybe a)
 getNullable dec = do
-    len <- getInt32BE
+    len <- fieldLength
     if len == -1
     then pure Nothing
-    else Just <$!> dec
+    else Just <$!> runFieldDecoder dec len
 
-{-# INLINE getString #-}
-getString :: Decode (Maybe B.ByteString)
-getString = getInt32BE >>= (Just <$!>) . getByteString . fromIntegral
+-- Field in composites Oid before value
+compositeValue :: Decode a -> Decode a
+compositeValue dec = skipBytes 4 >> dec
 
-{-# INLINE getBool #-}
-getBool :: Decode Bool
-getBool = (== 1) <$> getWord8
+compositeHeader :: Decode ()
+compositeHeader = skipBytes 4
 
-{-# INLINE getCh #-}
-getCh :: Decode Char
-getCh = (chr . fromIntegral) <$> getWord8
+arrayData :: Int -> Decode a -> Decode (V.Vector a)
+arrayData len dec = undefined
 
+-- Public decoders
+-- | Decodes only content of a field.
+newtype FieldDecoder a = FieldDecoder { runFieldDecoder :: Int -> Decode a }
 
-getCustom :: Decode (Maybe B.ByteString, Maybe Int32, Maybe Int32, 
-                     Maybe Int16, Maybe Bool, Maybe Char, Maybe Bool, 
-                     Maybe Bool, Maybe Char, Maybe Int32, Maybe Int32, 
-                     Maybe Int32)
-getCustom = (,,,,,,,,,,,) <$> 
-    getString <*>
-    (getNullable getInt32BE) <*>
-    (getNullable getInt32BE) <*>
-    (getNullable getInt16BE) <*>
-    (getNullable getBool) <*>
-    (getNullable getCh) <*>
-    (getNullable getBool) <*>
-    (getNullable getBool) <*>
-    (getNullable getCh) <*>
-    (getNullable getInt32BE) <*>
-    (getNullable getInt32BE) <*>
-    (getNullable getInt32BE) 
+int2 :: FieldDecoder Int16
+int2 = FieldDecoder $ \ _ -> getInt16BE
 
-getCustomRow = skipHeader *> getCustom
+int4 :: FieldDecoder Int32
+int4 = FieldDecoder $ \ _ -> getInt32BE 
 
+int8 :: FieldDecoder Int64
+int8 = FieldDecoder $ \ _ -> getInt64BE 
+
+bool :: FieldDecoder Bool
+bool = FieldDecoder $ \ _ -> (== 1) <$> getWord8

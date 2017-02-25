@@ -28,6 +28,7 @@ library
                      , Database.PostgreSQL.Protocol.Types
                      , Database.PostgreSQL.Protocol.Encoders
                      , Database.PostgreSQL.Protocol.Decoders
+                     , Database.PostgreSQL.Protocol.Parsers
                      , Database.PostgreSQL.Protocol.ExtractDataRows
                      , Database.PostgreSQL.Protocol.Store.Encode
                      , Database.PostgreSQL.Protocol.Store.Decode
@@ -38,7 +39,6 @@ library
                      , socket
                      , socket-unix
                      , vector
-                     , binary
                      , safe
                      , time
                      , hashable

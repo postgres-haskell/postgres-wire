@@ -39,6 +39,7 @@ import qualified Data.ByteString.Char8 as BS(pack, unpack)
 
 import Database.PostgreSQL.Protocol.Encoders
 import Database.PostgreSQL.Protocol.Decoders
+import Database.PostgreSQL.Protocol.Parsers
 import Database.PostgreSQL.Protocol.ExtractDataRows
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.Store.Encode (runEncode, Encode)

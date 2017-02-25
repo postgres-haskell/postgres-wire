@@ -11,7 +11,7 @@ import qualified Data.ByteString.Lazy.Internal as BL
 
 import Database.PostgreSQL.Driver.Error
 import Database.PostgreSQL.Protocol.Types
-import Database.PostgreSQL.Protocol.Decoders
+import Database.PostgreSQL.Protocol.Parsers
 import Database.PostgreSQL.Protocol.Utils
 
 -- Optimized loop for extracting chunks of DataRows.

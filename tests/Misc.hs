@@ -6,7 +6,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Database.PostgreSQL.Protocol.Types
-import Database.PostgreSQL.Protocol.Decoders
+import Database.PostgreSQL.Protocol.Parsers
 
 
 testMisc :: TestTree
