@@ -2,6 +2,8 @@ module Database.PostgreSQL.Protocol.DataRows
     ( loopExtractDataRows
     , countDataRows
     , flattenDataRows
+    , decodeManyRows
+    , decodeOneRow
     ) where
 
 import Data.Monoid ((<>))
@@ -9,10 +11,15 @@ import Data.Word    (Word8, byteSwap32)
 import Foreign      (peek, peekByteOff, castPtr)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Unsafe as B
+import qualified Data.Vector as V
+import qualified Data.Vector.Mutable as MV
+import Data.Foldable
+import System.IO.Unsafe
 
 import Database.PostgreSQL.Driver.Error
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.Parsers
+import Database.PostgreSQL.Protocol.Store.Decode
 import Database.PostgreSQL.Protocol.Utils
 
 -- Optimized loop for extracting chunks of DataRows.
@@ -122,6 +129,32 @@ loopExtractDataRows readMoreAction callback = go "" Empty
             b <- peek (castPtr ptr)
             w <- byteSwap32 <$> peekByteOff (castPtr ptr) 1
             pure $ Header b $ fromIntegral (w - 4)
+
+----
+-- Decoding 
+-----
+
+--  It is better that Decode throws exception on invalid input
+decodeOneRow :: Decode a -> DataRows -> a
+decodeOneRow dec Empty                         = snd $ runDecode dec ""
+decodeOneRow dec (DataRows (DataChunk _ bs) _) = snd $ runDecode dec bs
+
+decodeManyRows :: Decode a -> DataRows -> V.Vector a
+decodeManyRows dec dr = unsafePerformIO $ do
+    vec <- MV.unsafeNew count
+    go vec 0 dr
+    V.unsafeFreeze vec
+  where
+    go vec startInd Empty = pure ()
+    go vec startInd (DataRows (DataChunk len bs) nextDr) = do
+        let endInd = startInd + fromIntegral len
+        runDecodeIO 
+            (traverse_ (writeDec vec) [startInd .. (endInd  -1)]) 
+            bs
+        go vec endInd nextDr
+
+    count = fromIntegral $ countDataRows dr
+    writeDec vec pos = dec >>= embedIO . MV.unsafeWrite vec pos
 
 ---
 -- Utils

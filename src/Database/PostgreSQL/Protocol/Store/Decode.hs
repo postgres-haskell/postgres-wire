@@ -23,6 +23,18 @@ runDecode (Decode dec) bs =
     let (offset,v ) = decodeExPortionWith dec bs
     in (B.drop offset bs, v)
 
+{-# INLINE runDecodeIO #-}
+runDecodeIO :: Decode a -> B.ByteString -> IO (B.ByteString, a)
+runDecodeIO (Decode dec) bs = do
+    (offset, v) <- decodeIOPortionWith dec bs
+    pure (B.drop offset bs, v)
+
+{-# INLINE embedIO #-}
+embedIO :: IO a -> Decode a
+embedIO action = Decode $ Peek $ \_ ptr -> do
+    v <- action
+    return (ptr, v)
+
 {-# INLINE prim #-}
 prim :: Int -> (Ptr Word8 -> IO a) -> Decode a
 prim len f = Decode $ Peek $ \ps ptr -> do
