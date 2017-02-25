@@ -24,9 +24,9 @@ import qualified Database.PostgreSQL.LibPQ as LibPQ
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.Encoders
 import Database.PostgreSQL.Protocol.Decoders
+import Database.PostgreSQL.Protocol.DataRows
 import Database.PostgreSQL.Protocol.Store.Decode
 import Database.PostgreSQL.Protocol.Codecs.Decoders
-import Database.PostgreSQL.Protocol.ExtractDataRows
 import Database.PostgreSQL.Driver.Connection
 import Database.PostgreSQL.Driver
 import Criterion.Main
@@ -48,22 +48,29 @@ import Criterion.Main
 --  (SELECT repeat('a', 100)::bytea FROM generate_series(1, 300));
 
 -- main = benchMultiPw
--- main = defaultMain
---     [ bgroup "Requests"
---         [ 
---             -- env createConnection (\c -> bench "100 of 1k" . nfIO $ requestAction c)
---             bench "parser" $ nf parse bs
---         ]
---     ]
-main = benchMultiPw
+main = defaultMain
+    -- [ bgroup "Requests"
+    --     [ 
+    --         -- env createConnection (\c -> bench "100 of 1k" . nfIO $ requestAction c)
+    --         bench "parser" $ nf parse bs
+    --     ]
+    -- ]
+    [ bgroup "Decoder"
+        [ bench "datarow" $ nf benchDataRowDecoder bs
+        ]
+    ]
+-- main = benchMultiPw
+
+benchDataRowDecoder bs = decodeManyRows decodeDataRow $ 
+    DataRows (DataChunk 350 bs) Empty
+  where
+    decodeDataRow = do
+        (Header _ len) <- decodeHeader
+        getByteString len
 
 {-# NOINLINE bs #-}
 bs :: B.ByteString
 bs = unsafePerformIO $ B.readFile "1.txt"
-
-parse bs | B.null bs = ()
-         | otherwise = let (rest, v) = runDecode getCustomRow bs
-                       in v `seq` parse rest
 
 benchLoop :: IO ()
 benchLoop = do

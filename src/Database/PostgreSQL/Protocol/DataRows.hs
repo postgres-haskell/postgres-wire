@@ -13,6 +13,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Unsafe as B
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as MV
+import qualified Data.List as L
 import Data.Foldable
 import System.IO.Unsafe
 
@@ -141,19 +142,18 @@ decodeOneRow dec (DataRows (DataChunk _ bs) _) = snd $ runDecode dec bs
 
 decodeManyRows :: Decode a -> DataRows -> V.Vector a
 decodeManyRows dec dr = unsafePerformIO $ do
-    vec <- MV.unsafeNew count
-    go vec 0 dr
+    vec <- MV.unsafeNew . fromIntegral $ countDataRows dr
+    let go startInd Empty = pure ()
+        go startInd (DataRows (DataChunk len bs) nextDr) = do
+            let endInd = startInd + fromIntegral len
+            runDecodeIO 
+                (traverse_ (writeDec vec) [startInd .. (endInd  -1)]) 
+                bs
+            go endInd nextDr
+    go 0 dr
     V.unsafeFreeze vec
   where
-    go vec startInd Empty = pure ()
-    go vec startInd (DataRows (DataChunk len bs) nextDr) = do
-        let endInd = startInd + fromIntegral len
-        runDecodeIO 
-            (traverse_ (writeDec vec) [startInd .. (endInd  -1)]) 
-            bs
-        go vec endInd nextDr
-
-    count = fromIntegral $ countDataRows dr
+    {-# INLINE writeDec #-}
     writeDec vec pos = dec >>= embedIO . MV.unsafeWrite vec pos
 
 ---

@@ -52,7 +52,7 @@ data DataChunk = DataChunk
     deriving (Show, Eq)
 
 -- | Helper types that contains only raw DataRows messages.
-data DataRows = Empty | DataRows {-# UNPACK #-} DataChunk DataRows
+data DataRows = Empty | DataRows {-# UNPACK #-} !DataChunk DataRows
     deriving (Show, Eq)
 
 -- | Ad-hoc type only for data rows.
