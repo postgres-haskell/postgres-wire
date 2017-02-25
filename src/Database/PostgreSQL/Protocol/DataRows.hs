@@ -1,13 +1,14 @@
-module Database.PostgreSQL.Protocol.ExtractDataRows 
+module Database.PostgreSQL.Protocol.DataRows 
     ( loopExtractDataRows
+    , countDataRows
+    , flattenDataRows
     ) where
 
+import Data.Monoid ((<>))
 import Data.Word    (Word8, byteSwap32)
 import Foreign      (peek, peekByteOff, castPtr)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Unsafe as B
-import qualified Data.ByteString.Lazy as BL
-import qualified Data.ByteString.Lazy.Internal as BL
 
 import Database.PostgreSQL.Driver.Error
 import Database.PostgreSQL.Protocol.Types
@@ -23,16 +24,16 @@ loopExtractDataRows
     -- Will be called on every DataMessage.
     -> (DataMessage -> IO ())
     -> IO ()
-loopExtractDataRows readMoreAction callback = go "" ""
+loopExtractDataRows readMoreAction callback = go "" Empty
   where
-    go :: B.ByteString -> BL.ByteString -> IO ()
+   -- Note that DataRows go in reverse order.
+    go :: B.ByteString -> DataRows -> IO ()
     go bs acc
         | B.length bs < headerSize = readMoreAndGo bs acc
         | otherwise = do
             ScanRowResult ch rest r <- scanDataRows bs
             -- We should force accumulator
-            -- Note: `BL.chunk` should not prepend empty bytestring as chunk.
-            let !newAcc = BL.chunk ch acc
+            let !newAcc = chunk ch acc
 
             case r of
                 -- Following happened:
@@ -47,27 +48,25 @@ loopExtractDataRows readMoreAction callback = go "" ""
                     dispatchHeader mt len (B.drop headerSize rest) newAcc
 
     {-# INLINE dispatchHeader #-}
-    dispatchHeader :: Word8 -> Int -> B.ByteString -> BL.ByteString -> IO ()
+    dispatchHeader :: Word8 -> Int -> B.ByteString -> DataRows -> IO ()
     dispatchHeader mt len bs acc = case mt of
         -- 'C' - CommandComplete.
         -- Command is completed, return the result.
         67 -> do
-            callback $
-                DataMessage . DataRows $
-                    BL.foldlChunks (flip BL.chunk) BL.empty acc
+            callback $ 
+                DataMessage $ reverseDataRows acc
 
             newBs <- skipBytes bs len
-            go newBs BL.empty
+            go newBs Empty
 
         -- 'I' - EmptyQueryResponse.
         -- PostgreSQL sends this if query string was empty and datarows
         -- should be empty, but anyway we return data collected in `acc`.
         73 -> do
             callback $
-                DataMessage . DataRows $
-                    BL.foldlChunks (flip BL.chunk) BL.empty acc
+                DataMessage $ reverseDataRows acc
 
-            go bs BL.empty
+            go bs Empty
 
         -- 'E' - ErrorResponse.
         -- On ErrorResponse we should discard all the collected datarows.
@@ -76,7 +75,7 @@ loopExtractDataRows readMoreAction callback = go "" ""
             desc <- eitherToProtocolEx $  parseErrorDesc b
             callback (DataError desc)
 
-            go newBs BL.empty
+            go newBs Empty
 
         -- 'Z' - ReadyForQuery.
         -- To know when command processing is finished
@@ -92,7 +91,7 @@ loopExtractDataRows readMoreAction callback = go "" ""
             go newBs acc
 
     {-# INLINE readMoreAndGo #-}
-    readMoreAndGo :: B.ByteString -> BL.ByteString -> IO ()
+    readMoreAndGo :: B.ByteString -> DataRows -> IO ()
     readMoreAndGo bs acc = do
         newBs <- readMoreAction bs
         go newBs acc
@@ -123,3 +122,33 @@ loopExtractDataRows readMoreAction callback = go "" ""
             b <- peek (castPtr ptr)
             w <- byteSwap32 <$> peekByteOff (castPtr ptr) 1
             pure $ Header b $ fromIntegral (w - 4)
+
+---
+-- Utils
+-- 
+
+{-# INLINE chunk #-}
+chunk :: DataChunk -> DataRows -> DataRows
+chunk ch@(DataChunk len bs) dr 
+    | len == 0  = dr
+    | otherwise = DataRows ch dr
+
+{-# INLINE foldlDataRows #-}
+foldlDataRows :: (a -> DataChunk -> a) -> a -> DataRows -> a
+foldlDataRows f z = go z
+  where
+    go a Empty            = a
+    go a (DataRows ch dr) = let !na = f a ch in go na dr
+
+{-# INLINE reverseDataRows #-}
+reverseDataRows :: DataRows -> DataRows
+reverseDataRows = foldlDataRows (flip chunk) Empty
+
+{-# INLINE countDataRows #-}
+countDataRows :: DataRows -> Word
+countDataRows = foldlDataRows (\acc (DataChunk c _) -> acc + c) 0
+
+-- | For testing only
+{-# INLINE flattenDataRows #-}
+flattenDataRows :: DataRows -> B.ByteString
+flattenDataRows = foldlDataRows (\acc (DataChunk _ bs) -> acc <> bs) ""

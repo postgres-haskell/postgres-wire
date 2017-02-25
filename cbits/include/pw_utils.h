@@ -9,4 +9,4 @@
 #define NEED_MORE_INPUT 0x01
 #define OTHER_HEADER    0x02
 
-size_t scan_datarows(char *buffer, size_t len, int *reason);
+size_t scan_datarows(char *buffer, size_t len, unsigned long *p_count, int *reason);

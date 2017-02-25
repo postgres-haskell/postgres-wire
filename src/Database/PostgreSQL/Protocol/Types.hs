@@ -44,10 +44,15 @@ newtype ServerSecretKey  = ServerSecretKey Int32 deriving (Show)
 data ServerVersion = ServerVersion !Word8 !Word8 !Word8 !ByteString
     deriving (Eq, Show)
 
+-- A chunk of DataRows.
+-- It is guaranted that a `ByteString` contains integer number of `DataRow`s.
+data DataChunk = DataChunk 
+    {-# UNPACK #-} !Word        -- ^ Count of DataRows in ByteString
+    {-# UNPACK #-} !B.ByteString
+    deriving (Show, Eq)
+
 -- | Helper types that contains only raw DataRows messages.
--- It is guaranted that a single strict chunk of the `ByteString`
--- contains integer number of `DataRow`s.
-newtype DataRows = DataRows BL.ByteString
+data DataRows = Empty | DataRows {-# UNPACK #-} DataChunk DataRows
     deriving (Show, Eq)
 
 -- | Ad-hoc type only for data rows.

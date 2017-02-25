@@ -17,6 +17,7 @@ import Database.PostgreSQL.Driver.Connection
 import Database.PostgreSQL.Driver.StatementStorage
 import Database.PostgreSQL.Driver.Query
 import Database.PostgreSQL.Protocol.Types
+import Database.PostgreSQL.Protocol.DataRows
 import Database.PostgreSQL.Protocol.Store.Decode
 import Database.PostgreSQL.Protocol.Decoders
 
@@ -54,8 +55,8 @@ fromRight _         = error "fromRight"
 fromMessage :: Either e DataRows -> B.ByteString
 -- TODO
 -- 5 bytes -header, 2 bytes -count, 4 bytes - length
-fromMessage (Right (DataRows bs)) = B.drop 11 $ BL.toStrict bs
-fromMessage _                     = error "from message"
+fromMessage (Right rows) = B.drop 11 $ flattenDataRows rows
+fromMessage _            = error "from message"
 
 -- | Single batch.
 testBatch :: IO ()
@@ -116,7 +117,7 @@ assertQueryNoData q = withConnection $ \c -> do
     sendBatchAndSync c [q]
     r <- fromRight <$> readNextData c
     waitReadyForQuery c
-    DataRows "" @=? r
+    Empty @=? r
 
 -- | Asserts that all the received data messages are in form (Right _)
 checkRightResult :: Connection -> Int -> Assertion
@@ -226,9 +227,10 @@ testCorrectDatarows = withConnection $ \c -> do
     r <- readNextData c
     case r of
         Left e -> error $ show e
-        Right (DataRows rows) -> do
-            let bs = BL.toStrict rows
+        Right rows -> do
+            let bs = flattenDataRows rows
             map (BS.pack . show ) [1 .. 1000] @=? go bs
+            countDataRows rows @=? 1000
   where
     go bs | B.null bs = []
           | otherwise = let (rest, v) = runDecode decodeDataRow bs

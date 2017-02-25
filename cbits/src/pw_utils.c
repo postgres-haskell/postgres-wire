@@ -1,14 +1,16 @@
 #include <pw_utils.h>
 
-/* pointer to the next data message
-   length of buffer
-   ptr where result reasond would be put
-   returns offset of buffer when datarows end.
-*/
-size_t scan_datarows(char *buffer, size_t len, int *reason)
+/* returns offset of buffer when datarows end. */
+size_t scan_datarows(
+        char *buffer, /* pointer to the next data message */
+        size_t len,  /* length of the buffer */
+        unsigned long *p_count,  /* ptr where count of datarows will be put */
+        int *reason /* ptr where result reasond will be put */
+    )
 {
     size_t offset = 0;
     uint32_t message_len = 0;
+    unsigned long count = 0;
 
     while (1)
     {
@@ -27,6 +29,8 @@ size_t scan_datarows(char *buffer, size_t len, int *reason)
             break;
         }
         offset = offset + HEADER_TYPE_SIZE + (size_t)message_len;
+        count = count + 1;
     }
+    *p_count = count;
     return offset;
 }
