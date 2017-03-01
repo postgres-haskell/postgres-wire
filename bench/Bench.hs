@@ -54,39 +54,13 @@ main = defaultMain
     --         bench "parser" $ nf parse bs
     --     ]
     -- ]
-    [ bgroup "Decoder"
-        [ env (pure dec) $ \p -> bench "datarow" $ nf (benchDataRowDecoder p) bs]
-    ]
--- main = benchMultiPw
-dec :: Decode (Maybe B.ByteString, Maybe Int32, Maybe Int32, 
-               Maybe Int16, Maybe Bool, Maybe B.ByteString,
-               Maybe Bool, Maybe Bool, Maybe B.ByteString, 
-               Maybe Int32, Maybe Int32, Maybe Int32)
-dec = rowDecoder
 
-parser = skipDataRowHeader *> p
-  where 
-    p = (,,,,,,,,,,,)
-        <$> fn getByteString
-        <*> fn int4
-        <*> fn int4
-        <*> fn int2
-        <*> fn bool
-        <*> fn getByteString
-        <*> fn bool
-        <*> fn bool
-        <*> fn getByteString
-        <*> fn int4
-        <*> fn int4
-        <*> fn int4
-    fn = getNullable
-
-benchDataRowDecoder d bs = decodeManyRows d $ 
-    DataRows (DataChunk 380 bs) Empty
-  where
-    decodeDataRow = do
-        (Header _ len) <- decodeHeader
-        getByteString len
+-- benchDataRowDecoder d bs = decodeManyRows d $ 
+--     DataRows (DataChunk 380 bs) Empty
+--   where
+--     decodeDataRow = do
+--         (Header _ len) <- decodeHeader
+--         getByteString len
 
 {-# NOINLINE bs #-}
 bs :: B.ByteString
@@ -155,20 +129,12 @@ benchMultiPw = benchRequests createConnection $ \c -> do
             sendBatchAndSync c [q]
             d <- readNextData c
             waitReadyForQuery c
-            -- case d of
-            --     Left _ -> undefined
-            --     Right rows -> pure $ decodeManyRows dec rows
   where
     q = Query largeStmt V.empty Binary Binary AlwaysCache
     largeStmt = "SELECT * from _bytes_300_of_100"
     -- largeStmt = "select typname, typnamespace, typowner, typlen, typbyval,"
     --             <> "typcategory, typispreferred, typisdefined, typdelim,"
     --             <> "typrelid, typelem, typarray from pg_type" 
-    dec :: Decode (Maybe B.ByteString, Maybe Int32, Maybe Int32, 
-                   Maybe Int16, Maybe Bool, Maybe B.ByteString,
-                   Maybe Bool, Maybe Bool, Maybe B.ByteString, 
-                   Maybe Int32, Maybe Int32, Maybe Int32)
-    dec = rowDecoder
 
 benchLibpq :: IO ()
 benchLibpq = benchRequests libpqConnection $ \c -> do
