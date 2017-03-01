@@ -52,6 +52,9 @@ interval = mkOids 1186 1187
 json :: Oids               
 json = mkOids 114 199     
 
+jsonb :: Oids
+jsonb = mkOids 3802 3807
+
 numeric :: Oids          
 numeric = mkOids 1700 1231 
 

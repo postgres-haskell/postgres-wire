@@ -33,12 +33,12 @@ library
                      , Database.PostgreSQL.Protocol.Store.Encode
                      , Database.PostgreSQL.Protocol.Store.Decode
                      , Database.PostgreSQL.Protocol.Codecs.Decoders
+                     , Database.PostgreSQL.Protocol.Codecs.PgTypes
   other-modules:       Database.PostgreSQL.Protocol.Utils
   build-depends:       base >= 4.7 && < 5
                      , bytestring
                      , socket
                      , socket-unix
-                     , free
                      , vector
                      , safe
                      , time
@@ -47,10 +47,11 @@ library
                      , unordered-containers
                      , unix
                      , stm
-                     , postgresql-binary
                      , tls
                      , cryptonite
                      , store-core
+                     , scientific
+                     , uuid
   default-language:    Haskell2010
   default-extensions:  
     BangPatterns

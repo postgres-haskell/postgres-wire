@@ -70,6 +70,33 @@ arrayFieldDecoder dims f _ = arrayHeader *> arrayDimensions dims >>= f
 -- | Decodes only content of a field.
 type FieldDecoder a = Int -> Decode a 
 
+--
+-- Primitives
+--
+
+{-# INLINE bool #-}
+bool :: FieldDecoder Bool
+bool _ = (== 1) <$> getWord8
+
+{-# INLINE bytea #-}
+bytea :: FieldDecoder B.ByteString
+bytea = getByteString
+
+{-# INLINE char #-}
+char :: FieldDecoder Char
+char _ = chr . fromIntegral <$> getWord8
+
+-- date :: FieldDecoder ?
+-- date = undefined
+
+{-# INLINE float4 #-}
+float4 :: FieldDecoder Float
+float4 _ = getFloat32BE
+
+{-# INLINE float8 #-}
+float8 :: FieldDecoder Double
+float8 _ = getFloat64BE
+
 {-# INLINE int2 #-}
 int2 :: FieldDecoder Int16
 int2 _ =  getInt16BE
@@ -82,7 +109,30 @@ int4 _ =  getInt32BE
 int8 :: FieldDecoder Int64
 int8 _ =  getInt64BE 
 
-{-# INLINE bool #-}
-bool :: FieldDecoder Bool
-bool _ = (== 1) <$> getWord8
+-- interval :: FieldDecoder ?
+-- interval = undefined
+
+-- | Decodes representation of JSON as @ByteString@.
+{-# INLINE bsJsonText #-}
+bsJsonText :: FieldDecoder B.ByteString
+bsJsonText = getByteString
+
+-- | Decodes representation of JSONB as @ByteString@.
+{-# INLINE bytestringJsonBytes #-}
+bsJsonBytes :: FieldDecoder B.ByteString
+bsJsonBytes len = getWord8 *> getByteString (len - 1)
+
+-- numeric :: FieldDecoder Scientific
+-- numeric = undefined
+
+-- | Decodes text without applying encoding.
+{-# INLINE bsText #-}
+bsText :: FieldDecoder B.ByteString
+bsText = getByteString
+
+-- timestamp :: FieldDecoder ?
+-- timestamp = undefined
+
+-- timestamptz :: FieldDecoder ?
+-- timestamptz = undefined
 
