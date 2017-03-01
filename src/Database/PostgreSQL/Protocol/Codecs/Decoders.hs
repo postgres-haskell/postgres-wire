@@ -1,34 +1,24 @@
-{-# language GADTs #-}
-{-# language TypeFamilies #-}
-{-# language DataKinds #-}
-{-# language KindSignatures #-}
-{-# language ScopedTypeVariables #-}
-{-# language FlexibleInstances #-}
-{-# language FlexibleContexts #-}
-{-# language UndecidableInstances #-}
-{-# language ConstrainedClassMethods #-}
 module Database.PostgreSQL.Protocol.Codecs.Decoders where
 
--- import Data.Bool
 import Data.Word
 import Data.Int
 import Data.Char
-import Control.Monad
 import qualified Data.ByteString as B
 import qualified Data.Vector as V
 
 import Control.Monad
-import Control.Applicative.Free
-import Data.Proxy
 import Prelude hiding (bool)
 
 import Database.PostgreSQL.Protocol.Store.Decode
-import Database.PostgreSQL.Protocol.Store.Encode
 import Database.PostgreSQL.Protocol.Types
 
-{-# INLINE skipDataRowHeader #-}
-skipDataRowHeader :: Decode ()
-skipDataRowHeader = skipBytes 7
+-- | Decodes DataRow header.
+-- 1 byte - Message Header
+-- 4 bytes - Message length
+-- 2 bytes - count of columns in the DataRow
+{-# INLINE dataRowHeader #-}
+dataRowHeader :: Decode ()
+dataRowHeader  = skipBytes 7
 
 {-# INLINE fieldLength #-}
 fieldLength :: Decode Int
@@ -46,28 +36,37 @@ getNullable fdec = do
     then pure Nothing
     else Just <$!> fdec len
 
--- Field in composites Oid before value
-compositeValue :: Decode ()
-compositeValue = skipBytes 4 
+-- | Field in composites contain Oid before value
+{-# INLINE compositeValuePrefix #-}
+compositeValuePrefix :: Decode ()
+compositeValuePrefix = skipBytes 4 
 
--- Skips length of elements in composite
+-- | Skips length of elements in composite
+{-# INLINE compositeHeader #-}
 compositeHeader :: Decode ()
 compositeHeader = skipBytes 4
 
--- Dimensions, HasNull, Oid
+-- | Skips array header.
+-- 4 bytes - count of dimensions
+-- 4 bytes - if array contains any NULL
+-- 4 bytes - element Oid
+{-# INLINE arrayHeader #-}
 arrayHeader :: Decode ()
 arrayHeader = skipBytes 12
 
+-- | Decodes size of each dimension.
+{-# INLINE arrayDimensions #-}
 arrayDimensions :: Int -> Decode (V.Vector Int)
-arrayDimensions depth = V.reverse <$> V.replicateM depth arrayDimSize 
+arrayDimensions dims = V.reverse <$> V.replicateM dims arrayDimSize 
   where
+    -- 4 bytes - count of elements in dimension
+    -- 4 bytes - lower bound
     arrayDimSize = (fromIntegral <$> getInt32BE) <* getInt32BE
 
-
+{-# INLINE arrayFieldDecoder #-}
 arrayFieldDecoder :: Int -> (V.Vector Int -> Decode a) -> FieldDecoder a
 arrayFieldDecoder dims f _ = arrayHeader *> arrayDimensions dims >>= f
 
--- Public decoders
 -- | Decodes only content of a field.
 type FieldDecoder a = Int -> Decode a 
 

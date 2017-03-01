@@ -226,7 +226,7 @@ testLargeQuery = withConnection $ \c -> do
 testCorrectDatarows :: IO ()
 testCorrectDatarows = withConnection $ \c -> do
     let stmt = "SELECT * FROM generate_series(1, 1000)"
-    sendBatchAndSync c [Query stmt V.empty Binary Binary NeverCache]
+    sendBatchAndSync c [Query stmt V.empty Text Text NeverCache]
     r <- readNextData c
     case r of
         Left e -> error $ show e
