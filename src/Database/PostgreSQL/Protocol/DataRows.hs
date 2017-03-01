@@ -183,6 +183,7 @@ reverseDataRows = foldlDataRows (flip chunk) Empty
 countDataRows :: DataRows -> Word
 countDataRows = foldlDataRows (\acc (DataChunk c _) -> acc + c) 0
 
+-- FIXME delete later
 -- | For testing only
 {-# INLINE flattenDataRows #-}
 flattenDataRows :: DataRows -> B.ByteString
