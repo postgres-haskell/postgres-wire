@@ -14,6 +14,7 @@ import System.Socket (socket, AddressInfo(..), getAddressInfo, socketAddress,
 import System.Socket.Family.Inet (Inet)
 import System.Socket.Type.Stream (Stream, sendAll)
 import System.Socket.Protocol.TCP (TCP)
+import System.Socket.Protocol.Default (Default)
 import System.Socket.Family.Unix (Unix, socketAddressUnixPath)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BS(pack)
@@ -51,7 +52,7 @@ createRawConnection settings
 
     unixConnection dirPath = do
         let mAddress = socketAddressUnixPath $ makeUnixPath dirPath
-        createAndConnect mAddress (socket :: IO (Socket Unix Stream Unix))
+        createAndConnect mAddress (socket :: IO (Socket Unix Stream Default))
 
     tcpConnection = fmap excToError . try $ do
         mAddress <- fmap socketAddress . headMay <$>

@@ -136,10 +136,12 @@ loopExtractDataRows readMoreAction callback = go "" Empty
 -----
 
 --  It is better that Decode throws exception on invalid input
+{-# INLINABLE decodeOneRow #-}
 decodeOneRow :: Decode a -> DataRows -> a
 decodeOneRow dec Empty                         = snd $ runDecode dec ""
 decodeOneRow dec (DataRows (DataChunk _ bs) _) = snd $ runDecode dec bs
 
+{-# INLINABLE decodeManyRows #-}
 decodeManyRows :: Decode a -> DataRows -> V.Vector a
 decodeManyRows dec dr = unsafePerformIO $ do
     vec <- MV.unsafeNew . fromIntegral $ countDataRows dr

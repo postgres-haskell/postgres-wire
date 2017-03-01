@@ -47,7 +47,6 @@ import Criterion.Main
 -- INSERT INTO _bytes_300_of_100(b)
 --  (SELECT repeat('a', 100)::bytea FROM generate_series(1, 300));
 
--- main = benchMultiPw
 main = defaultMain
     -- [ bgroup "Requests"
     --     [ 
@@ -56,13 +55,34 @@ main = defaultMain
     --     ]
     -- ]
     [ bgroup "Decoder"
-        [ bench "datarow" $ nf benchDataRowDecoder bs
-        ]
+        [ env (pure dec) $ \p -> bench "datarow" $ nf (benchDataRowDecoder p) bs]
     ]
 -- main = benchMultiPw
+dec :: Decode (Maybe B.ByteString, Maybe Int32, Maybe Int32, 
+               Maybe Int16, Maybe Bool, Maybe B.ByteString,
+               Maybe Bool, Maybe Bool, Maybe B.ByteString, 
+               Maybe Int32, Maybe Int32, Maybe Int32)
+dec = rowDecoder
 
-benchDataRowDecoder bs = decodeManyRows decodeDataRow $ 
-    DataRows (DataChunk 350 bs) Empty
+parser = skipDataRowHeader *> p
+  where 
+    p = (,,,,,,,,,,,)
+        <$> fn getByteString
+        <*> fn int4
+        <*> fn int4
+        <*> fn int2
+        <*> fn bool
+        <*> fn getByteString
+        <*> fn bool
+        <*> fn bool
+        <*> fn getByteString
+        <*> fn int4
+        <*> fn int4
+        <*> fn int4
+    fn = getNullable
+
+benchDataRowDecoder d bs = decodeManyRows d $ 
+    DataRows (DataChunk 380 bs) Empty
   where
     decodeDataRow = do
         (Header _ len) <- decodeHeader
@@ -99,7 +119,7 @@ benchLoop = do
 benchRequests :: IO c -> (c -> IO a) -> IO ()
 benchRequests connectAction queryAction = do
     rs <- replicateM 8 newThread
-    threadDelay 10000000
+    threadDelay $ 2 *1000000
     traverse (\(_,_, tid) -> killThread tid) rs
     s <- sum <$> traverse (\(ref, _, _) -> readIORef ref) rs
     latency_total <- sum <$> traverse (\(_, ref, _) -> readIORef ref) rs
@@ -112,7 +132,8 @@ benchRequests connectAction queryAction = do
         c <- connectAction
         tid <- forkIO $ forever $ do
             t1 <- getTime Monotonic
-            queryAction c
+            r <- queryAction c
+            r `seq` pure ()
             t2 <- getTime Monotonic
             modifyIORef' ref_latency (+ (getDifference t2 t1))
             modifyIORef' ref_count (+1)
@@ -132,11 +153,22 @@ requestAction c = replicateM_ 100 $ do
 benchMultiPw :: IO ()
 benchMultiPw = benchRequests createConnection $ \c -> do
             sendBatchAndSync c [q]
-            readNextData c
+            d <- readNextData c
             waitReadyForQuery c
+            -- case d of
+            --     Left _ -> undefined
+            --     Right rows -> pure $ decodeManyRows dec rows
   where
     q = Query largeStmt V.empty Binary Binary AlwaysCache
     largeStmt = "SELECT * from _bytes_300_of_100"
+    -- largeStmt = "select typname, typnamespace, typowner, typlen, typbyval,"
+    --             <> "typcategory, typispreferred, typisdefined, typdelim,"
+    --             <> "typrelid, typelem, typarray from pg_type" 
+    dec :: Decode (Maybe B.ByteString, Maybe Int32, Maybe Int32, 
+                   Maybe Int16, Maybe Bool, Maybe B.ByteString,
+                   Maybe Bool, Maybe Bool, Maybe B.ByteString, 
+                   Maybe Int32, Maybe Int32, Maybe Int32)
+    dec = rowDecoder
 
 benchLibpq :: IO ()
 benchLibpq = benchRequests libpqConnection $ \c -> do
@@ -176,3 +208,21 @@ instance NFData (AbsConnection a) where
 instance NFData Error where
     rnf _ = ()
 
+instance (NFData a1, NFData a2, NFData a3, NFData a4, NFData a5, NFData a6, NFData a7, NFData a8, NFData a9, NFData a10, NFData a11, NFData a12) =>
+         NFData (a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12) where
+  rnf (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12) =
+                  rnf x1 `seq`
+                  rnf x2 `seq`
+                  rnf x3 `seq`
+                  rnf x4 `seq`
+                  rnf x5 `seq`
+                  rnf x6 `seq`
+                  rnf x7 `seq`
+                  rnf x8 `seq`
+                  rnf x9 `seq`
+                  rnf x10 `seq`
+                  rnf x11 `seq`
+                  rnf x12 
+
+instance NFData (Decode a) where
+    rnf !d =  ()

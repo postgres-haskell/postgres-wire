@@ -38,6 +38,7 @@ library
                      , bytestring
                      , socket
                      , socket-unix
+                     , free
                      , vector
                      , safe
                      , time

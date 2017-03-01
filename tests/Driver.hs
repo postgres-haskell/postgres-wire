@@ -4,6 +4,7 @@ import Data.Monoid ((<>))
 import Data.Foldable
 import Control.Monad
 import Data.Maybe
+import Data.Int
 import Data.Either
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
@@ -20,6 +21,8 @@ import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.DataRows
 import Database.PostgreSQL.Protocol.Store.Decode
 import Database.PostgreSQL.Protocol.Decoders
+
+import Database.PostgreSQL.Protocol.Codecs.Decoders
 
 import Connection
 
@@ -223,7 +226,7 @@ testLargeQuery = withConnection $ \c -> do
 testCorrectDatarows :: IO ()
 testCorrectDatarows = withConnection $ \c -> do
     let stmt = "SELECT * FROM generate_series(1, 1000)"
-    sendBatchAndSync c [Query stmt V.empty Text Text NeverCache]
+    sendBatchAndSync c [Query stmt V.empty Binary Binary NeverCache]
     r <- readNextData c
     case r of
         Left e -> error $ show e
@@ -238,3 +241,38 @@ testCorrectDatarows = withConnection $ \c -> do
         getInt16BE
         getByteString . fromIntegral =<< getInt32BE
 
+testDecoder :: IO ()
+testDecoder = withConnection $ \c -> do
+    let stmt = "SELECT '{{1,2},{Null,4}}'::int[][]"
+    sendBatchAndSync c [Query stmt V.empty Binary Binary NeverCache]
+    r <- readNextData c
+    waitReadyForQuery c
+    case r of
+        Left e -> error $ show e
+        Right rows -> do
+            -- print rows
+            print $ decodeManyRows dec rows
+  where
+    -- dec :: Decode (Int32, (Maybe Int32, Int32, Int32), Int32)
+    -- dec = rowDecoder
+    largeStmt = "select typname, typnamespace, typowner, typlen, typbyval,"
+                <> "typcategory, typispreferred, typisdefined, typdelim,"
+                <> "typrelid, typelem, typarray from pg_type" 
+    -- dec :: Decode (Maybe B.ByteString, Maybe Int32, Maybe Int32, 
+    --                Maybe Int16, Maybe Bool, Maybe B.ByteString,
+    --                Maybe Bool, Maybe Bool, Maybe B.ByteString, 
+    --                Maybe Int32, Maybe Int32, Maybe Int32)
+    dec :: Decode (V.Vector (V.Vector (Maybe Int32)))
+    dec = rowDecoder
+        -- <$> fn getByteString
+        -- <*> fn int4
+        -- <*> fn int4
+        -- <*> fn int2
+        -- <*> fn bool
+        -- <*> fn getByteString
+        -- <*> fn bool
+        -- <*> fn bool
+        -- <*> fn getByteString
+        -- <*> fn int4
+        -- <*> fn int4
+        -- <*> fn int4
