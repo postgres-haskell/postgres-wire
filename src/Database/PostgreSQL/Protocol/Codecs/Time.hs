@@ -10,6 +10,7 @@ module Database.PostgreSQL.Protocol.Codecs.Time
     ) where
 
 import Data.Int  (Int64, Int32)
+import Data.Word (Word32, Word64)
 import Data.Time (Day(..), UTCTime(..), LocalTime(..), DiffTime, TimeOfDay,
                   picosecondsToDiffTime, timeToTimeOfDay,
                   diffTimeToPicoseconds, timeOfDayToTime)
@@ -19,12 +20,12 @@ dayToPgj :: Day -> Integer
 dayToPgj = (+ (modifiedJulianEpoch - postgresEpoch)) . toModifiedJulianDay
 
 {-# INLINE utcToMicros #-}
-utcToMicros :: UTCTime -> Int64
+utcToMicros :: UTCTime -> Word32
 utcToMicros (UTCTime day diffTime) = fromIntegral $ 
     dayToMcs day + diffTimeToMcs diffTime
 
 {-# INLINE localTimeToMicros #-}
-localTimeToMicros :: LocalTime -> Int64
+localTimeToMicros :: LocalTime -> Word64
 localTimeToMicros (LocalTime day time) = fromIntegral $
     dayToMcs day + timeOfDayToMcs time
 
@@ -34,13 +35,13 @@ pgjToDay = ModifiedJulianDay . fromIntegral
                         . subtract (modifiedJulianEpoch - postgresEpoch)
 
 {-# INLINE microsToUTC #-}
-microsToUTC :: Int64 -> UTCTime
+microsToUTC :: Word64 -> UTCTime
 microsToUTC mcs =
     let (d, r) = mcs `divMod` microsInDay
     in UTCTime (pgjToDay d) (mcsToDiffTime r)
 
 {-# INLINE microsToLocalTime #-}
-microsToLocalTime :: Int64 -> LocalTime
+microsToLocalTime :: Word64 -> LocalTime
 microsToLocalTime mcs =
     let (d, r) = mcs `divMod` microsInDay
     in LocalTime (pgjToDay d) (mcsToTimeOfDay r)

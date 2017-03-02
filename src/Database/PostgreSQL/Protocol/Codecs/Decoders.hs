@@ -25,7 +25,7 @@ dataRowHeader  = skipBytes 7
 
 {-# INLINE fieldLength #-}
 fieldLength :: Decode Int
-fieldLength = fromIntegral <$> getInt32BE
+fieldLength = fromIntegral <$> getWord32BE
 
 {-# INLINE getNonNullable #-}
 getNonNullable :: FieldDecoder a -> Decode a
@@ -64,7 +64,7 @@ arrayDimensions dims = V.reverse <$> V.replicateM dims arrayDimSize
   where
     -- 4 bytes - count of elements in dimension
     -- 4 bytes - lower bound
-    arrayDimSize = (fromIntegral <$> getInt32BE) <* getInt32BE
+    arrayDimSize = (fromIntegral <$> getWord32BE) <* getWord32BE
 
 {-# INLINE arrayFieldDecoder #-}
 arrayFieldDecoder :: Int -> (V.Vector Int -> Decode a) -> FieldDecoder a
@@ -91,7 +91,7 @@ char _ = chr . fromIntegral <$> getWord8
 
 {-# INLINE date #-}
 date :: FieldDecoder Day
-date _ = pgjToDay <$> getInt32BE
+date _ = pgjToDay <$> getWord32BE
 
 {-# INLINE float4 #-}
 float4 :: FieldDecoder Float
@@ -137,16 +137,16 @@ bsText = getByteString
 
 {-# INLINE timestamp #-}
 timestamp :: FieldDecoder LocalTime
-timestamp _ = microsToLocalTime <$> getInt64BE
+timestamp _ = microsToLocalTime <$> getWord64BE
 
 {-# INLINE timestamptz #-}
 timestamptz :: FieldDecoder UTCTime
-timestamptz _ = microsToUTC <$> getInt64BE
+timestamptz _ = microsToUTC <$> getWord64BE
 
 {-# INLINE uuid #-}
 uuid :: FieldDecoder UUID
 uuid _ = fromWords 
-    <$> (fromIntegral <$> getInt32BE)
-    <*> (fromIntegral <$> getInt32BE)
-    <*> (fromIntegral <$> getInt32BE)
-    <*> (fromIntegral <$> getInt32BE)
+    <$> getWord32BE
+    <*> getWord32BE
+    <*> getWord32BE
+    <*> getWord32BE
