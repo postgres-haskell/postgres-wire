@@ -3,6 +3,7 @@ module Database.PostgreSQL.Protocol.Codecs.Decoders where
 import Data.Word
 import Data.Int
 import Data.Char
+import Data.Time (Day, UTCTime, LocalTime)
 import qualified Data.ByteString as B
 import qualified Data.Vector as V
 
@@ -11,6 +12,7 @@ import Prelude hiding (bool)
 
 import Database.PostgreSQL.Protocol.Store.Decode
 import Database.PostgreSQL.Protocol.Types
+import Database.PostgreSQL.Protocol.Codecs.Time
 
 -- | Decodes DataRow header.
 -- 1 byte - Message Header
@@ -86,8 +88,9 @@ bytea = getByteString
 char :: FieldDecoder Char
 char _ = chr . fromIntegral <$> getWord8
 
--- date :: FieldDecoder ?
--- date = undefined
+{-# INLINE date #-}
+date :: FieldDecoder Day
+date _ = pgjToDay <$> getInt32BE
 
 {-# INLINE float4 #-}
 float4 :: FieldDecoder Float
@@ -118,7 +121,7 @@ bsJsonText :: FieldDecoder B.ByteString
 bsJsonText = getByteString
 
 -- | Decodes representation of JSONB as @ByteString@.
-{-# INLINE bytestringJsonBytes #-}
+{-# INLINE bsJsonBytes #-}
 bsJsonBytes :: FieldDecoder B.ByteString
 bsJsonBytes len = getWord8 *> getByteString (len - 1)
 
@@ -130,9 +133,10 @@ bsJsonBytes len = getWord8 *> getByteString (len - 1)
 bsText :: FieldDecoder B.ByteString
 bsText = getByteString
 
--- timestamp :: FieldDecoder ?
--- timestamp = undefined
+{-# INLINE timestamp #-}
+timestamp :: FieldDecoder LocalTime
+timestamp _ = microsToLocalTime <$> getInt64BE
 
--- timestamptz :: FieldDecoder ?
--- timestamptz = undefined
+timestamptz :: FieldDecoder UTCTime
+timestamptz _ = microsToUTC <$> getInt64BE
 

@@ -34,6 +34,7 @@ library
                      , Database.PostgreSQL.Protocol.Store.Decode
                      , Database.PostgreSQL.Protocol.Codecs.Decoders
                      , Database.PostgreSQL.Protocol.Codecs.PgTypes
+                     , Database.PostgreSQL.Protocol.Codecs.Time
   other-modules:       Database.PostgreSQL.Protocol.Utils
   build-depends:       base >= 4.7 && < 5
                      , bytestring
