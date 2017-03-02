@@ -3,6 +3,7 @@ module Database.PostgreSQL.Protocol.Codecs.Decoders where
 import Data.Word
 import Data.Int
 import Data.Char
+import Data.UUID (UUID, fromWords)
 import Data.Time (Day, UTCTime, LocalTime, DiffTime)
 import qualified Data.ByteString as B
 import qualified Data.Vector as V
@@ -138,6 +139,14 @@ bsText = getByteString
 timestamp :: FieldDecoder LocalTime
 timestamp _ = microsToLocalTime <$> getInt64BE
 
+{-# INLINE timestamptz #-}
 timestamptz :: FieldDecoder UTCTime
 timestamptz _ = microsToUTC <$> getInt64BE
 
+{-# INLINE uuid #-}
+uuid :: FieldDecoder UUID
+uuid _ = fromWords 
+    <$> (fromIntegral <$> getInt32BE)
+    <*> (fromIntegral <$> getInt32BE)
+    <*> (fromIntegral <$> getInt32BE)
+    <*> (fromIntegral <$> getInt32BE)
