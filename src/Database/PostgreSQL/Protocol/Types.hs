@@ -10,7 +10,7 @@ module Database.PostgreSQL.Protocol.Types where
 -- * bind command can have different formats for parameters and results
 --   but we assume that there will be one format for all.
 
-import Data.Word (Word32, Word8)
+import Data.Word (Word32, Word8, Word16)
 import Data.Int (Int32, Int16)
 import Data.Hashable (Hashable)
 import Data.ByteString as B(ByteString)
@@ -18,7 +18,7 @@ import qualified Data.ByteString.Lazy as BL(ByteString)
 import Data.Vector (Vector)
 
 -- Common
-newtype Oid           = Oid { unOid :: Int32 }    deriving (Show, Eq)
+newtype Oid           = Oid { unOid :: Word32 }   deriving (Show, Eq)
 newtype StatementName = StatementName ByteString  deriving (Show)
 newtype StatementSQL  = StatementSQL ByteString   deriving (Show, Eq, Hashable)
 newtype PortalName    = PortalName ByteString     deriving (Show)
@@ -34,8 +34,8 @@ data PasswordText
     | PasswordMD5 !ByteString
     deriving (Show)
 
-newtype ServerProcessId = ServerProcessId Int32 deriving (Show)
-newtype ServerSecretKey  = ServerSecretKey Int32 deriving (Show)
+newtype ServerProcessId = ServerProcessId Word32 deriving (Show)
+newtype ServerSecretKey = ServerSecretKey Word32 deriving (Show)
 
 -- | Server version contains major, minor, revision numbers.
 -- Examples:
@@ -65,7 +65,7 @@ data DataMessage
 
 -- | Maximum number of rows to return, if portal contains a query that
 -- returns rows (ignored otherwise). Zero denotes "no limit".
-newtype RowsToReceive = RowsToReceive Int32 deriving (Show)
+newtype RowsToReceive = RowsToReceive Word32 deriving (Show)
 
 -- | Query will returned unlimited rows.
 noLimitToReceive :: RowsToReceive
@@ -200,7 +200,7 @@ data FieldDescription = FieldDescription {
     , fieldTableOid     :: !Oid
     --  | If the field can be identified as a column of a specific table,
     --  the attribute number of the column; otherwise zero.
-    , fieldColumnNumber :: !Int16
+    , fieldColumnNumber :: !Word16
     -- | The object ID of the field's data type.
     , fieldTypeOid      :: !Oid
     -- | The data type size (see pg_type.typlen). Note that negative

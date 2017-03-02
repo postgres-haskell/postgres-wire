@@ -69,17 +69,29 @@ getByteStringNull = Decode $ Peek $ \ps ptr -> do
 getWord8 :: Decode Word8
 getWord8 = prim 1 peek
 
+{-# INLINE getWord16BE #-}
+getWord16BE :: Decode Word16
+getWord16BE = prim 2 $ \ptr -> byteSwap16 <$> peek (castPtr ptr)
+
+{-# INLINE getWord32BE #-}
+getWord32BE :: Decode Word32
+getWord32BE = prim 4 $ \ptr -> byteSwap32 <$> peek (castPtr ptr)
+
+{-# INLINE getWord64BE #-}
+getWord64BE :: Decode Word64
+getWord64BE = prim 8 $ \ptr -> byteSwap64 <$> peek (castPtr ptr)
+
 {-# INLINE getInt16BE #-}
 getInt16BE :: Decode Int16
-getInt16BE = prim 2 $ \ptr -> fromIntegral . byteSwap16 <$> peek (castPtr ptr)
+getInt16BE = fromIntegral <$> getWord16BE
 
 {-# INLINE getInt32BE #-}
 getInt32BE :: Decode Int32
-getInt32BE = prim 4 $ \ptr -> fromIntegral . byteSwap32 <$> peek (castPtr ptr)
+getInt32BE = fromIntegral <$> getWord32BE
 
 {-# INLINE getInt64BE #-}
 getInt64BE :: Decode Int64
-getInt64BE = prim 8 $ \ptr -> fromIntegral . byteSwap64 <$> peek (castPtr ptr)
+getInt64BE = fromIntegral <$> getWord64BE
 
 {-# INLINE getFloat32BE #-}
 getFloat32BE :: Decode Float

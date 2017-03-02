@@ -3,7 +3,7 @@
 -}
 module Database.PostgreSQL.Protocol.Codecs.PgTypes where
 
-import Data.Int (Int32)
+import Data.Word (Word32)
 
 import Database.PostgreSQL.Protocol.Types
 
@@ -12,7 +12,7 @@ data Oids = Oids
     , oidArrayType :: {-# UNPACK #-} !Oid
     } deriving (Show, Eq)
 
-mkOids :: Int32 -> Int32 -> Oids
+mkOids :: Word32 -> Word32 -> Oids
 mkOids a b = Oids (Oid a) (Oid b)
 
 --

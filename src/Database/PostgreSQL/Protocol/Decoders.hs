@@ -50,7 +50,7 @@ decodeAuthResponse = do
             (getByteString len >>=
                 eitherToDecode .parseErrorDesc)
         'R' -> do
-            rType <- getInt32BE
+            rType <- getWord32BE
             case rType of
                 0 -> pure AuthenticationOk
                 3 -> pure AuthenticationCleartextPassword
@@ -63,12 +63,12 @@ decodeAuthResponse = do
 
 decodeHeader :: Decode Header
 decodeHeader = Header <$> getWord8 <*>
-                (fromIntegral . subtract 4 <$> getInt32BE)
+                (fromIntegral . subtract 4 <$> getWord32BE)
 
 decodeServerMessage :: Header -> Decode ServerMessage
 decodeServerMessage (Header c len) = case chr $ fromIntegral c of
-    'K' -> BackendKeyData <$> (ServerProcessId <$> getInt32BE)
-                          <*> (ServerSecretKey <$> getInt32BE)
+    'K' -> BackendKeyData <$> (ServerProcessId <$> getWord32BE)
+                          <*> (ServerSecretKey <$> getWord32BE)
     '2' -> pure BindComplete
     '3' -> pure CloseComplete
     'C' -> CommandComplete <$> (getByteString len
@@ -87,15 +87,15 @@ decodeServerMessage (Header c len) = case chr $ fromIntegral c of
             eitherToDecode . parseNoticeDesc)
     'A' -> NotificationResponse <$> decodeNotification
     't' -> do
-        paramCount <- fromIntegral <$> getInt16BE
+        paramCount <- fromIntegral <$> getWord16BE
         ParameterDescription <$> V.replicateM paramCount
-                                 (Oid <$> getInt32BE)
+                                 (Oid <$> getWord32BE)
     'S' -> ParameterStatus <$> getByteStringNull <*> getByteStringNull
     '1' -> pure ParseComplete
     's' -> pure PortalSuspended
     'Z' -> ReadyForQuery <$> decodeTransactionStatus
     'T' -> do
-        rowsCount <- fromIntegral <$> getInt16BE
+        rowsCount <- fromIntegral <$> getWord16BE
         RowDescription <$> V.replicateM rowsCount decodeFieldDescription
 
 decodeTransactionStatus :: Decode TransactionStatus
@@ -109,21 +109,21 @@ decodeTransactionStatus =  getWord8 >>= \t ->
 decodeFieldDescription :: Decode FieldDescription
 decodeFieldDescription = FieldDescription
     <$> getByteStringNull
-    <*> (Oid <$> getInt32BE)
-    <*> getInt16BE
-    <*> (Oid <$> getInt32BE)
+    <*> (Oid <$> getWord32BE)
+    <*> getWord16BE
+    <*> (Oid <$> getWord32BE)
     <*> getInt16BE
     <*> getInt32BE
     <*> decodeFormat
 
 decodeNotification :: Decode Notification
 decodeNotification = Notification
-    <$> (ServerProcessId <$> getInt32BE)
+    <$> (ServerProcessId <$> getWord32BE)
     <*> (ChannelName <$> getByteStringNull)
     <*> getByteStringNull
 
 decodeFormat :: Decode Format
-decodeFormat = getInt16BE >>= \f ->
+decodeFormat = getWord16BE >>= \f ->
     case f of
         0 -> pure Text
         1 -> pure Binary
