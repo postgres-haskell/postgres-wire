@@ -2,6 +2,8 @@ module Database.PostgreSQL.Protocol.Codecs.Decoders where
 
 import Data.Word
 import Data.Int
+import Data.Maybe
+import Data.Fixed
 import Data.Char
 import Data.UUID (UUID, fromWords)
 import Data.Time (Day, UTCTime, LocalTime, DiffTime)
@@ -14,6 +16,7 @@ import Prelude hiding (bool)
 import Database.PostgreSQL.Protocol.Store.Decode
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.Codecs.Time
+import Database.PostgreSQL.Protocol.Codecs.Numeric
 
 -- | Decodes DataRow header.
 -- 1 byte - Message Header
@@ -62,7 +65,7 @@ arrayHeader = skipBytes 12
 arrayDimensions :: Int -> Decode (V.Vector Int)
 arrayDimensions dims = V.reverse <$> V.replicateM dims arrayDimSize 
   where
-    -- 4 bytes - count of elements in dimension
+    -- 4 bytes - count of elements in the dimension
     -- 4 bytes - lower bound
     arrayDimSize = (fromIntegral <$> getWord32BE) <* getWord32BE
 
@@ -70,7 +73,7 @@ arrayDimensions dims = V.reverse <$> V.replicateM dims arrayDimSize
 arrayFieldDecoder :: Int -> (V.Vector Int -> Decode a) -> FieldDecoder a
 arrayFieldDecoder dims f _ = arrayHeader *> arrayDimensions dims >>= f
 
--- | Decodes only content of a field.
+-- | Decodes only a content of the field.
 type FieldDecoder a = Int -> Decode a 
 
 --
@@ -103,15 +106,15 @@ float8 _ = getFloat64BE
 
 {-# INLINE int2 #-}
 int2 :: FieldDecoder Int16
-int2 _ =  getInt16BE
+int2 _ = getInt16BE
 
 {-# INLINE int4 #-}
 int4 :: FieldDecoder Int32
-int4 _ =  getInt32BE 
+int4 _ = getInt32BE 
 
 {-# INLINE int8 #-}
 int8 :: FieldDecoder Int64
-int8 _ =  getInt64BE 
+int8 _ = getInt64BE 
 
 {-# INLINE interval #-}
 interval :: FieldDecoder DiffTime
@@ -127,8 +130,15 @@ bsJsonText = getByteString
 bsJsonBytes :: FieldDecoder B.ByteString
 bsJsonBytes len = getWord8 *> getByteString (len - 1)
 
--- numeric :: FieldDecoder Scientific
--- numeric = undefined
+numeric :: HasResolution a => FieldDecoder (Fixed a)
+numeric _ = do
+   ndigits <- getWord16BE
+   weight <- getInt16BE
+   msign <- numericSign <$> getWord16BE
+   sign <- maybe (fail "unknown numeric") pure msign
+   dscale <- getWord16BE
+   digits <- replicateM (fromIntegral ndigits) getWord16BE
+   pure $ undefined
 
 -- | Decodes text without applying encoding.
 {-# INLINE bsText #-}
