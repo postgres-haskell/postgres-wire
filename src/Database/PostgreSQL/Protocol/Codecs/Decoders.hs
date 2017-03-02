@@ -3,7 +3,7 @@ module Database.PostgreSQL.Protocol.Codecs.Decoders where
 import Data.Word
 import Data.Int
 import Data.Char
-import Data.Time (Day, UTCTime, LocalTime)
+import Data.Time (Day, UTCTime, LocalTime, DiffTime)
 import qualified Data.ByteString as B
 import qualified Data.Vector as V
 
@@ -112,8 +112,9 @@ int4 _ =  getInt32BE
 int8 :: FieldDecoder Int64
 int8 _ =  getInt64BE 
 
--- interval :: FieldDecoder ?
--- interval = undefined
+{-# INLINE interval #-}
+interval :: FieldDecoder DiffTime
+interval _ = intervalToDiffTime <$> getInt64BE <*> getInt32BE <*> getInt32BE
 
 -- | Decodes representation of JSON as @ByteString@.
 {-# INLINE bsJsonText #-}

@@ -5,9 +5,11 @@ module Database.PostgreSQL.Protocol.Codecs.Time
     , pgjToDay
     , microsToUTC
     , microsToLocalTime
+    , intervalToDiffTime
+    , diffTimeToInterval
     ) where
 
-import Data.Int  (Int64)
+import Data.Int  (Int64, Int32)
 import Data.Time (Day(..), UTCTime(..), LocalTime(..), DiffTime, TimeOfDay,
                   picosecondsToDiffTime, timeToTimeOfDay,
                   diffTimeToPicoseconds, timeOfDayToTime)
@@ -42,6 +44,17 @@ microsToLocalTime :: Int64 -> LocalTime
 microsToLocalTime mcs =
     let (d, r) = mcs `divMod` microsInDay
     in LocalTime (pgjToDay d) (mcsToTimeOfDay r)
+
+{-# INLINE intervalToDiffTime #-}
+intervalToDiffTime :: Int64 -> Int32 -> Int32 -> DiffTime
+intervalToDiffTime mcs days months = picosecondsToDiffTime . mcsToPcs $ 
+    microsInDay * (fromIntegral months * daysInMonth + fromIntegral days) 
+    + fromIntegral mcs
+
+-- TODO consider adjusted encoding
+{-# INLINE diffTimeToInterval #-}
+diffTimeToInterval :: DiffTime -> (Int64, Int32, Int32)
+diffTimeToInterval dt = (fromIntegral $ diffTimeToMcs dt, 0, 0)
 
 --
 -- Utils
@@ -82,3 +95,6 @@ postgresEpoch = 2451545
 
 microsInDay :: Num a => a
 microsInDay = 24 * 60 * 60 * 10 ^ 6
+
+daysInMonth :: Num a => a
+daysInMonth = 30
