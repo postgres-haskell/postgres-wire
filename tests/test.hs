@@ -5,11 +5,14 @@ import Driver
 import Fault
 import Misc
 
+import Codecs.QuickCheck
+
 main :: IO ()
 main = defaultMain $ testGroup "Postgres-wire"
     [ testProtocolMessages
     , testDriver
     , testFaults
     , testMisc
+    , testCodecsEncodeDecode
     ]
 

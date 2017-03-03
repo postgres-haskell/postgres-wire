@@ -9,6 +9,11 @@ packages:
 extra-deps: 
     - socket-0.8.0.0
     - socket-unix-0.2.0.0
+# <<<<<<< HEAD
+# =======
+#     - store-core-0.3
+#     - QuickCheck-2.9.2
+# >>>>>>> QuickCheck tests for existing codecs
 
 # Override default flag values for local packages and extra-deps
 flags: {}
