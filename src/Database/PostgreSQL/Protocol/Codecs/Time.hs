@@ -16,18 +16,17 @@ import Data.Time (Day(..), UTCTime(..), LocalTime(..), DiffTime, TimeOfDay,
                   diffTimeToPicoseconds, timeOfDayToTime)
 
 {-# INLINE dayToPgj #-}
-dayToPgj :: Day -> Integer
-dayToPgj = (+ (modifiedJulianEpoch - postgresEpoch)) . toModifiedJulianDay
+dayToPgj :: Integral a => Day -> a
+dayToPgj = fromIntegral 
+    .(+ (modifiedJulianEpoch - postgresEpoch)) . toModifiedJulianDay
 
 {-# INLINE utcToMicros #-}
-utcToMicros :: UTCTime -> Word32
-utcToMicros (UTCTime day diffTime) = fromIntegral $ 
-    dayToMcs day + diffTimeToMcs diffTime
+utcToMicros :: UTCTime -> Word64
+utcToMicros (UTCTime day diffTime) = dayToMcs day + diffTimeToMcs diffTime
 
 {-# INLINE localTimeToMicros #-}
 localTimeToMicros :: LocalTime -> Word64
-localTimeToMicros (LocalTime day time) = fromIntegral $
-    dayToMcs day + timeOfDayToMcs time
+localTimeToMicros (LocalTime day time) = dayToMcs day + timeOfDayToMcs time
 
 {-# INLINE pgjToDay #-}
 pgjToDay :: Integral a => a -> Day
@@ -61,15 +60,15 @@ diffTimeToInterval dt = (fromIntegral $ diffTimeToMcs dt, 0, 0)
 -- Utils
 --
 {-# INLINE dayToMcs #-}
-dayToMcs :: Day -> Integer
+dayToMcs :: Integral a => Day -> a
 dayToMcs = (microsInDay *) . dayToPgj 
 
 {-# INLINE diffTimeToMcs #-}
-diffTimeToMcs :: DiffTime -> Integer
-diffTimeToMcs = pcsToMcs . diffTimeToPicoseconds 
+diffTimeToMcs :: Integral a => DiffTime -> a
+diffTimeToMcs = fromIntegral . pcsToMcs . diffTimeToPicoseconds 
 
 {-# INLINE timeOfDayToMcs #-}
-timeOfDayToMcs :: TimeOfDay -> Integer
+timeOfDayToMcs :: Integral a => TimeOfDay -> a
 timeOfDayToMcs = diffTimeToMcs . timeOfDayToTime 
 
 {-# INLINE mcsToDiffTime #-}

@@ -33,6 +33,7 @@ library
                      , Database.PostgreSQL.Protocol.Store.Encode
                      , Database.PostgreSQL.Protocol.Store.Decode
                      , Database.PostgreSQL.Protocol.Codecs.Decoders
+                     , Database.PostgreSQL.Protocol.Codecs.Encoders
                      , Database.PostgreSQL.Protocol.Codecs.PgTypes
                      , Database.PostgreSQL.Protocol.Codecs.Time
                      , Database.PostgreSQL.Protocol.Codecs.Numeric
