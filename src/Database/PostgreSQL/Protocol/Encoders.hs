@@ -5,6 +5,7 @@ module Database.PostgreSQL.Protocol.Encoders
 
 import           Data.Word (Word32)
 import           Data.Monoid ((<>))
+import           Data.Char (ord)
 import qualified Data.Vector as V
 import qualified Data.ByteString as B
 
@@ -21,8 +22,11 @@ encodeStartMessage (StartupMessage (Username uname) (DatabaseName dbname))
   where
     len     = fromIntegral $ getEncodeLen payload
     payload = putWord32BE currentVersion <>
-              putPgString "user" <> putPgString uname <>
-              putPgString "database" <> putPgString dbname <> putWord8 0
+              putByteStringNull "user" <> 
+              putByteStringNull uname <>
+              putByteStringNull "database" <> 
+              putByteStringNull dbname <> 
+              putWord8 0
 encodeStartMessage SSLRequest
     -- Value hardcoded by PostgreSQL docs.
     = putWord32BE 8 <> putWord32BE 80877103 
@@ -31,8 +35,8 @@ encodeClientMessage :: ClientMessage -> Encode
 encodeClientMessage (Bind (PortalName portalName) (StatementName stmtName)
                      paramFormat values resultFormat)
     = prependHeader 'B' $
-        putPgString portalName <>
-        putPgString stmtName <>
+        putByteStringNull portalName <>
+        putByteStringNull stmtName <>
         -- `1` means that the specified format code is applied to all parameters
         putWord16BE 1 <>
         encodeFormat paramFormat <>
@@ -43,32 +47,32 @@ encodeClientMessage (Bind (PortalName portalName) (StatementName stmtName)
         putWord16BE 1 <>
         encodeFormat resultFormat
 encodeClientMessage (CloseStatement (StatementName stmtName))
-    = prependHeader 'C' $ putChar8 'S' <> putPgString stmtName
+    = prependHeader 'C' $ putChar8 'S' <> putByteStringNull stmtName
 encodeClientMessage (ClosePortal (PortalName portalName))
-    = prependHeader 'C' $ putChar8 'P' <> putPgString portalName
+    = prependHeader 'C' $ putChar8 'P' <> putByteStringNull portalName
 encodeClientMessage (DescribeStatement (StatementName stmtName))
-    = prependHeader 'D' $ putChar8 'S' <> putPgString stmtName
+    = prependHeader 'D' $ putChar8 'S' <> putByteStringNull stmtName
 encodeClientMessage (DescribePortal (PortalName portalName))
-    = prependHeader 'D' $ putChar8 'P' <> putPgString portalName
+    = prependHeader 'D' $ putChar8 'P' <> putByteStringNull portalName
 encodeClientMessage (Execute (PortalName portalName) (RowsToReceive rows))
     = prependHeader 'E' $
-        putPgString portalName <>
+        putByteStringNull portalName <>
         putWord32BE rows
 encodeClientMessage Flush
     = prependHeader 'H' mempty
 encodeClientMessage (Parse (StatementName stmtName) (StatementSQL stmt) oids)
     = prependHeader 'P' $
-        putPgString stmtName <>
-        putPgString stmt <>
+        putByteStringNull stmtName <>
+        putByteStringNull stmt <>
         putWord16BE (fromIntegral $ V.length oids) <>
         foldMap (putWord32BE . unOid) oids
 encodeClientMessage (PasswordMessage passtext)
-    = prependHeader 'p' $ putPgString $ getPassword passtext
+    = prependHeader 'p' $ putByteStringNull $ getPassword passtext
       where
         getPassword (PasswordPlain p) = p
         getPassword (PasswordMD5 p) = p
 encodeClientMessage (SimpleQuery (StatementSQL stmt))
-    = prependHeader 'Q' $ putPgString stmt
+    = prependHeader 'Q' $ putByteStringNull stmt
 encodeClientMessage Sync
     = prependHeader 'S' mempty
 encodeClientMessage Terminate
@@ -76,18 +80,24 @@ encodeClientMessage Terminate
 
 -- | Encodes single data values. Length `-1` indicates a NULL parameter value.
 -- No value bytes follow in the NULL case.
+{-# INLINE encodeValue #-}
 encodeValue :: Maybe B.ByteString -> Encode
 encodeValue Nothing  = putWord32BE (-1)
 encodeValue (Just v) = putWord32BE (fromIntegral $ B.length v)
                             <> putByteString v
 
+{-# INLINE encodeFormat #-}
 encodeFormat :: Format -> Encode
 encodeFormat Text   = putWord16BE 0
 encodeFormat Binary = putWord16BE 1
 
+{-# INLINE prependHeader #-}
 prependHeader :: Char -> Encode -> Encode
 prependHeader c payload =
    -- Length includes itself but not the first message-type byte
     let len = 4 + fromIntegral (getEncodeLen payload)
     in putChar8 c <> putWord32BE len <> payload
 
+{-# INLINE putChar8 #-}
+putChar8 :: Char -> Encode
+putChar8 = putWord8 . fromIntegral . ord
