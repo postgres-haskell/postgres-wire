@@ -33,15 +33,14 @@ runDecodeIO (Decode dec) bs = do
 embedIO :: IO a -> Decode a
 embedIO action = Decode $ Peek $ \_ ptr -> do
     v <- action
-    return (ptr, v)
+    pure (PeekResult ptr v)
 
 {-# INLINE prim #-}
 prim :: Int -> (Ptr Word8 -> IO a) -> Decode a
 prim len f = Decode $ Peek $ \ps ptr -> do
     !v <- f ptr
     let !newPtr = ptr `plusPtr` len
-    return (newPtr, v)
-    -- return $ PeekResult newPtr v
+    pure (PeekResult newPtr v)
 
 -- Public
 
@@ -54,16 +53,14 @@ getByteString :: Int -> Decode B.ByteString
 getByteString len = Decode $ Peek $ \ps ptr -> do
     bs <- B.packCStringLen (castPtr ptr, len)
     let !newPtr = ptr `plusPtr` len
-    -- return $ PeekResult newPtr bs
-    return (newPtr, bs)
+    pure (PeekResult newPtr bs)
 
 {-# INLINE getByteStringNull #-}
 getByteStringNull :: Decode B.ByteString
 getByteStringNull = Decode $ Peek $ \ps ptr -> do
     bs <- B.packCString (castPtr ptr)
     let !newPtr = ptr `plusPtr` (B.length bs + 1)
-    -- return $ PeekResult newPtr bs
-    return (newPtr, bs)
+    pure (PeekResult newPtr bs)
 
 {-# INLINE getWord8 #-}
 getWord8 :: Decode Word8
@@ -95,12 +92,12 @@ getInt64BE = fromIntegral <$> getWord64BE
 
 {-# INLINE getFloat32BE #-}
 getFloat32BE :: Decode Float
-getFloat32BE = prim 4 $ \ptr -> byteSwap32 <$> peek (castPtr ptr) 
+getFloat32BE = prim 4 $ \ptr -> byteSwap32 <$> peek (castPtr ptr)
                                     >>= wordToFloat
 
 {-# INLINE getFloat64BE #-}
 getFloat64BE :: Decode Double
-getFloat64BE = prim 8 $ \ptr -> byteSwap64 <$> peek (castPtr ptr) 
+getFloat64BE = prim 8 $ \ptr -> byteSwap64 <$> peek (castPtr ptr)
                                     >>= wordToFloat
 
 {-# INLINE wordToFloat #-}
