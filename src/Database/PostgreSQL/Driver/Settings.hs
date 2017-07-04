@@ -1,6 +1,6 @@
-module Database.PostgreSQL.Driver.Settings 
+module Database.PostgreSQL.Driver.Settings
     ( ConnectionSettings(..)
-    , TlsMode
+    , TlsMode (..)
     , defaultConnectionSettings
     ) where
 

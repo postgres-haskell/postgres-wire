@@ -52,7 +52,7 @@ library
                      , stm
                      , tls
                      , cryptonite
-                     , store-core
+                     , store-core   >= 0.4.1 && < 0.5
                      , scientific
                      , uuid
   default-language:    Haskell2010
