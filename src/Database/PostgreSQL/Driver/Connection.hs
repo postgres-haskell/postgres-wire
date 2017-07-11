@@ -29,10 +29,12 @@ import Control.Concurrent (forkIOWithUnmask, killThread, ThreadId, threadDelay
                           , mkWeakThreadId)
 import Control.Concurrent.STM.TQueue (TQueue, writeTQueue, newTQueueIO)
 import Control.Concurrent.STM (atomically)
-import Control.Exception (SomeException, bracketOnError, catch, mask_)
+import Control.Exception (SomeException, bracketOnError, catch, mask_, 
+                          catch, throwIO)
 import GHC.Conc (labelThread)
 import Crypto.Hash (hash, Digest, MD5)
 import System.Mem.Weak (Weak, deRefWeak)
+import System.Socket (eBadFileDescriptor)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BS(pack, unpack)
@@ -130,7 +132,6 @@ sendMessage rawConn msg = void $
 
 sendEncode :: AbsConnection c -> Encode -> IO ()
 sendEncode conn = void . rSend (connRawConnection conn) . runEncode
-
 
 connectWith
     :: ConnectionSettings
@@ -251,18 +252,19 @@ parseParameters action str = Right <$> do
 handshakeTls :: RawConnection ->  IO ()
 handshakeTls _ = pure ()
 
--- | Public
--- TODO add termination
+-- | Closes connection. Does not throw exceptions when socket is closed.
 close :: AbsConnection c -> IO ()
 close conn = do
     maybe (pure ()) killThread =<< deRefWeak (connReceiverThread conn)
+    sendMessage (connRawConnection conn) Terminate `catch` handlerEx
     rClose $ connRawConnection conn
+  where
+    handlerEx e | e == eBadFileDescriptor = pure ()
+                | otherwise               = throwIO e
 
 -- | Any exception prevents thread from future work.
 receiverThread :: RawConnection -> InDataChan -> IO ()
 receiverThread rawConn dataChan = loopExtractDataRows
-    -- TODO
-    -- dont append strings. Allocate buffer manually and use unsafeReceive
     (\bs -> rReceive rawConn bs 4096)
     (writeChan dataChan . Right)
 
@@ -279,8 +281,6 @@ receiverThreadCommon rawConn chan msgFilter ntfHandler = go ""
         (rest, msg) <- decodeNextServerMessage bs readMoreAction
         handler msg >> go rest
 
-    -- TODO
-    -- dont append strings. Allocate buffer manually and use unsafeReceive
     readMoreAction = (\bs -> rReceive rawConn bs 4096)
     handler msg = do
         dispatchIfNotification msg ntfHandler
