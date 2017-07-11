@@ -24,7 +24,7 @@ import Database.PostgreSQL.Protocol.Codecs.Numeric
 -- 2 bytes - count of columns in the DataRow
 {-# INLINE dataRowHeader #-}
 dataRowHeader :: Decode ()
-dataRowHeader  = skipBytes 7
+dataRowHeader = skipBytes 7
 
 {-# INLINE fieldLength #-}
 fieldLength :: Decode Int
@@ -73,12 +73,12 @@ arrayDimensions dims = V.reverse <$> V.replicateM dims arrayDimSize
 arrayFieldDecoder :: Int -> (V.Vector Int -> Decode a) -> FieldDecoder a
 arrayFieldDecoder dims f _ = arrayHeader *> arrayDimensions dims >>= f
 
--- | Decodes only a content of the field.
-type FieldDecoder a = Int -> Decode a 
-
 --
 -- Primitives
 --
+
+-- | Decodes only a content of the field.
+type FieldDecoder a = Int -> Decode a 
 
 {-# INLINE bool #-}
 bool :: FieldDecoder Bool
@@ -134,9 +134,9 @@ bsJsonBytes len = getWord8 *> getByteString (len - 1)
 numeric :: FieldDecoder Scientific
 numeric _ = do 
     ndigits <- getWord16BE
-    weight <- getInt16BE
-    sign <- getWord16BE >>= fromNumericSign
-    _ <- getWord16BE
+    weight  <- getInt16BE
+    sign    <- fromNumericSign =<< getWord16BE 
+    _       <- getWord16BE
     numericToScientific sign weight <$> 
         replicateM (fromIntegral ndigits) getWord16BE
 

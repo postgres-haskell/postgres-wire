@@ -16,6 +16,7 @@ import Database.PostgreSQL.Protocol.Store.Encode
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.Codecs.Time
 import Database.PostgreSQL.Protocol.Codecs.Numeric
+
 --
 -- Primitives
 --
@@ -59,7 +60,7 @@ int8 = putInt64BE
 
 {-# INLINE interval #-}
 interval :: DiffTime -> Encode
-interval v = let (mcs, days, months)  = diffTimeToInterval v 
+interval v = let (mcs, days, months) = diffTimeToInterval v 
              in putInt64BE mcs <> putInt32BE days <> putInt32BE months
 
 -- | Encodes representation of JSON as @ByteString@.

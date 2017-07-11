@@ -65,9 +65,7 @@ makeCodecEncodeProperty c oid queryString encoder fPrint v = monadicIO $ do
         sendBatchAndSync c [q]
         dr <- readNextData c
         waitReadyForQuery c
-        r <- either (error . show) (pure . BC.unpack . decodeOneRow decoder) dr
-        -- print $ fPrint v <> "  " <> r
-        pure r
+        either (error . show) (pure . BC.unpack . decodeOneRow decoder) dr
 
     assertQCEqual (fPrint v) r
 
@@ -96,7 +94,7 @@ mkCodecEncodeTest name oids queryString encoder fPrint =
 
 testCodecsEncodeDecode :: TestTree
 testCodecsEncodeDecode = testGroup "Codecs property 'encode . decode = id'"
-    [ {-mkCodecTest "bool" PGT.bool PE.bool PD.bool
+    [ mkCodecTest "bool" PGT.bool PE.bool PD.bool
     , mkCodecTest "bytea" PGT.bytea PE.bytea PD.bytea
     , mkCodecTest "char" PGT.char PE.char PD.char
     , mkCodecTest "date" PGT.date PE.date PD.date
@@ -110,12 +108,11 @@ testCodecsEncodeDecode = testGroup "Codecs property 'encode . decode = id'"
                                   (fmap JsonString <$> PD.bsJsonText)
     , mkCodecTest "jsonb" PGT.jsonb (PE.bsJsonBytes .unJsonString) 
                                     (fmap JsonString <$> PD.bsJsonBytes)
-    -- TODO
-    , -}mkCodecTest "numeric" PGT.numeric PE.numeric PD.numeric
-    {-, mkCodecTest "text" PGT.text PE.bsText PD.bsText
+    , mkCodecTest "numeric" PGT.numeric PE.numeric PD.numeric
+    , mkCodecTest "text" PGT.text PE.bsText PD.bsText
     , mkCodecTest "timestamp" PGT.timestamp PE.timestamp PD.timestamp
     , mkCodecTest "timestamptz" PGT.timestamptz PE.timestamptz PD.timestamptz
-    , mkCodecTest "uuid" PGT.uuid PE.uuid PD.uuid-}
+    , mkCodecTest "uuid" PGT.uuid PE.uuid PD.uuid
     ]
 
 testCodecsEncodePrint :: TestTree
