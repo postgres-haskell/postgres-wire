@@ -6,7 +6,6 @@ module Database.PostgreSQL.Driver.RawConnection
 
 import Control.Monad (void, when)
 import Control.Exception (bracketOnError, try)
-import Safe (headMay)
 import Data.Monoid ((<>))
 import Foreign (castPtr, plusPtr)
 import System.Socket (socket, AddressInfo(..), getAddressInfo, socketAddress,
@@ -74,6 +73,9 @@ createRawConnection settings
         -- 47 - `/`, removing slash on the end of the path
         let dir = B.reverse . B.dropWhile (== 47) $ B.reverse dirPath
         in dir <> "/" <> unixPathFilename <> portStr
+
+    headMay []    = Nothing
+    headMay (x:_) = Just x
 
 constructRawConnection :: Socket f Stream p -> RawConnection
 constructRawConnection s = RawConnection
