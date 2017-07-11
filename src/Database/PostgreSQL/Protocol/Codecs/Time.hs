@@ -9,8 +9,7 @@ module Database.PostgreSQL.Protocol.Codecs.Time
     , diffTimeToInterval
     ) where
 
-import Data.Int  (Int64, Int32)
-import Data.Word (Word32, Word64)
+import Data.Int  (Int64, Int32, Int64)
 import Data.Time (Day(..), UTCTime(..), LocalTime(..), DiffTime, TimeOfDay,
                   picosecondsToDiffTime, timeToTimeOfDay,
                   diffTimeToPicoseconds, timeOfDayToTime)
@@ -21,11 +20,11 @@ dayToPgj = fromIntegral
     .(+ (modifiedJulianEpoch - postgresEpoch)) . toModifiedJulianDay
 
 {-# INLINE utcToMicros #-}
-utcToMicros :: UTCTime -> Word64
+utcToMicros :: UTCTime -> Int64
 utcToMicros (UTCTime day diffTime) = dayToMcs day + diffTimeToMcs diffTime
 
 {-# INLINE localTimeToMicros #-}
-localTimeToMicros :: LocalTime -> Word64
+localTimeToMicros :: LocalTime -> Int64
 localTimeToMicros (LocalTime day time) = dayToMcs day + timeOfDayToMcs time
 
 {-# INLINE pgjToDay #-}
@@ -34,13 +33,13 @@ pgjToDay = ModifiedJulianDay . fromIntegral
                         . subtract (modifiedJulianEpoch - postgresEpoch)
 
 {-# INLINE microsToUTC #-}
-microsToUTC :: Word64 -> UTCTime
+microsToUTC :: Int64 -> UTCTime
 microsToUTC mcs =
     let (d, r) = mcs `divMod` microsInDay
     in UTCTime (pgjToDay d) (mcsToDiffTime r)
 
 {-# INLINE microsToLocalTime #-}
-microsToLocalTime :: Word64 -> LocalTime
+microsToLocalTime :: Int64 -> LocalTime
 microsToLocalTime mcs =
     let (d, r) = mcs `divMod` microsInDay
     in LocalTime (pgjToDay d) (mcsToTimeOfDay r)
@@ -87,14 +86,18 @@ pcsToMcs = (`div` 10 ^ 6)
 mcsToPcs :: Integral a => a -> a
 mcsToPcs = (* 10 ^ 6)
 
+{-# INLINE modifiedJulianEpoch #-}
 modifiedJulianEpoch :: Num a => a 
 modifiedJulianEpoch = 2400001
 
+{-# INLINE postgresEpoch #-}
 postgresEpoch :: Num a => a
 postgresEpoch = 2451545
 
+{-# INLINE microsInDay #-}
 microsInDay :: Num a => a
 microsInDay = 24 * 60 * 60 * 10 ^ 6
 
+{-# INLINE daysInMonth #-}
 daysInMonth :: Num a => a
 daysInMonth = 30

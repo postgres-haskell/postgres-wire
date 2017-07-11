@@ -3,8 +3,8 @@ module Database.PostgreSQL.Protocol.Codecs.Decoders where
 import Data.Word
 import Data.Int
 import Data.Maybe
-import Data.Fixed
 import Data.Char
+import Data.Scientific
 import Data.UUID (UUID, fromWords)
 import Data.Time (Day, UTCTime, LocalTime, DiffTime)
 import qualified Data.ByteString as B
@@ -94,7 +94,7 @@ char _ = chr . fromIntegral <$> getWord8
 
 {-# INLINE date #-}
 date :: FieldDecoder Day
-date _ = pgjToDay <$> getWord32BE
+date _ = pgjToDay <$> getInt32BE
 
 {-# INLINE float4 #-}
 float4 :: FieldDecoder Float
@@ -130,15 +130,15 @@ bsJsonText = getByteString
 bsJsonBytes :: FieldDecoder B.ByteString
 bsJsonBytes len = getWord8 *> getByteString (len - 1)
 
-numeric :: HasResolution a => FieldDecoder (Fixed a)
-numeric _ = do
-   ndigits <- getWord16BE
-   weight <- getInt16BE
-   msign <- numericSign <$> getWord16BE
-   sign <- maybe (fail "unknown numeric") pure msign
-   dscale <- getWord16BE
-   digits <- replicateM (fromIntegral ndigits) getWord16BE
-   pure $ undefined
+{-# INLINE numeric #-}
+numeric :: FieldDecoder Scientific
+numeric _ = do 
+    ndigits <- getWord16BE
+    weight <- getInt16BE
+    sign <- getWord16BE >>= fromNumericSign
+    _ <- getWord16BE
+    numericToScientific sign weight <$> 
+        replicateM (fromIntegral ndigits) getWord16BE
 
 -- | Decodes text without applying encoding.
 {-# INLINE bsText #-}
@@ -147,11 +147,11 @@ bsText = getByteString
 
 {-# INLINE timestamp #-}
 timestamp :: FieldDecoder LocalTime
-timestamp _ = microsToLocalTime <$> getWord64BE
+timestamp _ = microsToLocalTime <$> getInt64BE
 
 {-# INLINE timestamptz #-}
 timestamptz :: FieldDecoder UTCTime
-timestamptz _ = microsToUTC <$> getWord64BE
+timestamptz _ = microsToUTC <$> getInt64BE
 
 {-# INLINE uuid #-}
 uuid :: FieldDecoder UUID

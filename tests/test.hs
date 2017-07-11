@@ -14,5 +14,6 @@ main = defaultMain $ testGroup "Postgres-wire"
     , testFaults
     , testMisc
     , testCodecsEncodeDecode
+    , testCodecsEncodePrint
     ]
 

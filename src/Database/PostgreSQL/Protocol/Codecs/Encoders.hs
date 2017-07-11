@@ -4,8 +4,8 @@ import Data.Word
 import Data.Monoid ((<>))
 import Data.Int
 import Data.Char
-import Data.Fixed
-import Data.UUID (UUID, toByteString)
+import Data.Scientific
+import Data.UUID (UUID, toWords)
 import Data.Time (Day, UTCTime, LocalTime, DiffTime)
 import qualified Data.ByteString as B
 import qualified Data.Vector as V
@@ -35,7 +35,7 @@ char = putWord8 . fromIntegral . ord
 
 {-# INLINE date #-}
 date :: Day -> Encode
-date = putWord32BE . dayToPgj
+date = putInt32BE . dayToPgj
 
 {-# INLINE float4 #-}
 float4 :: Float -> Encode
@@ -72,15 +72,15 @@ bsJsonText = putByteString
 bsJsonBytes :: B.ByteString -> Encode
 bsJsonBytes bs = putWord8 1 <> putByteString bs
 
-numeric :: HasResolution a => (Fixed a) -> Encode
-numeric _ = do undefined
-   -- ndigits <- putWord16BE
-   -- weight <- putInt16BE
-   -- msign <- numericSign <$> putWord16BE
-   -- sign <- maybe (fail "unknown numeric") pure msign
-   -- dscale <- putWord16BE
-   -- digits <- replicateM (fromIntegral ndigits) putWord16BE
-   -- pure $ undefined
+{-# INLINE numeric #-}
+numeric :: Scientific -> Encode
+numeric n = 
+    let (weight, scale, digits) = scientificToNumeric n
+    in    putWord16BE (fromIntegral $ length digits)
+       <> putInt16BE weight
+       <> putWord16BE (toNumericSign n)
+       <> putWord16BE scale
+       <> foldMap putWord16BE digits
 
 -- | Encodes text.
 {-# INLINE bsText #-}
@@ -89,12 +89,13 @@ bsText = putByteString
 
 {-# INLINE timestamp #-}
 timestamp :: LocalTime -> Encode
-timestamp = putWord64BE . localTimeToMicros 
+timestamp = putInt64BE . localTimeToMicros 
 
 {-# INLINE timestamptz #-}
 timestamptz :: UTCTime -> Encode
-timestamptz = putWord64BE . utcToMicros 
+timestamptz = putInt64BE . utcToMicros 
 
 {-# INLINE uuid #-}
 uuid :: UUID -> Encode
-uuid = undefined
+uuid v = let (a, b, c, d) = toWords v 
+         in putWord32BE a <> putWord32BE b <> putWord32BE c <> putWord32BE d
