@@ -10,7 +10,7 @@ import Database.PostgreSQL.Protocol.Types
 
 -- | Prepared statement storage
 data StatementStorage = StatementStorage
-    (H.BasicHashTable StatementSQL StatementName) (IORef Word)
+    !(H.BasicHashTable StatementSQL StatementName) !(IORef Word)
 
 -- | Cache policy about prepared statements.
 data CachePolicy
@@ -24,6 +24,8 @@ newStatementStorage = StatementStorage <$> H.new <*> newIORef 0
 lookupStatement :: StatementStorage -> StatementSQL -> IO (Maybe StatementName)
 lookupStatement (StatementStorage table _) = H.lookup table
 
+-- TODO place right name
+-- TODO info about exceptions and mask
 storeStatement :: StatementStorage -> StatementSQL -> IO StatementName
 storeStatement (StatementStorage table counter) stmt = do
     n <- readIORef counter

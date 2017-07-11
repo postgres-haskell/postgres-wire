@@ -82,6 +82,7 @@ sendBatchEndBy msg conn qs = do
     batch <- constructBatch conn qs
     sendEncode conn $ batch <> encodeClientMessage msg
 
+-- INFO about invalid statement in cache
 constructBatch :: Connection -> [Query] -> IO Encode
 constructBatch conn = fmap fold . traverse constructSingle
   where

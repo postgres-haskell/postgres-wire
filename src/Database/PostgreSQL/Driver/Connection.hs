@@ -161,12 +161,12 @@ authorize rawConn settings = do
     readAuthResponse = do
         -- 1024 should be enough for the auth response from a server at
         -- the startup phase.
-        resp <- rReceive rawConn 1024
+        resp <- rReceive rawConn mempty 1024
         case runDecode decodeAuthResponse resp of
             (rest, r) -> case r of
                 AuthenticationOk ->
                     parseParameters
-                        (\bs -> (bs <>) <$> rReceive rawConn 1024) rest
+                        (\bs ->  rReceive rawConn bs 1024) rest
                 AuthenticationCleartextPassword ->
                     performPasswordAuth makePlainPassword
                 AuthenticationMD5Password (MD5Salt salt) ->
@@ -219,8 +219,10 @@ buildConnection rawConn connParams receiverAction = do
             }
 
 -- | Parses connection parameters.
-parseParameters :: (B.ByteString -> IO B.ByteString)
-    -> B.ByteString -> IO (Either Error ConnectionParameters)
+parseParameters 
+    :: (B.ByteString -> IO B.ByteString)
+    -> B.ByteString 
+    -> IO (Either Error ConnectionParameters)
 parseParameters action str = Right <$> do
     dict <- parseDict str HM.empty
     serverVersion    <- eitherToProtocolEx  .  parseServerVersion =<<
@@ -261,7 +263,7 @@ receiverThread :: RawConnection -> InDataChan -> IO ()
 receiverThread rawConn dataChan = loopExtractDataRows
     -- TODO
     -- dont append strings. Allocate buffer manually and use unsafeReceive
-    (\bs -> (bs <>) <$> rReceive rawConn 4096)
+    (\bs -> rReceive rawConn bs 4096)
     (writeChan dataChan . Right)
 
 -- | Any exception prevents thread from future work.
@@ -279,7 +281,7 @@ receiverThreadCommon rawConn chan msgFilter ntfHandler = go ""
 
     -- TODO
     -- dont append strings. Allocate buffer manually and use unsafeReceive
-    readMoreAction = (\bs -> (bs <>) <$> rReceive rawConn 4096)
+    readMoreAction = (\bs -> rReceive rawConn bs 4096)
     handler msg = do
         dispatchIfNotification msg ntfHandler
         when (msgFilter msg) $ writeChan chan $ Right msg

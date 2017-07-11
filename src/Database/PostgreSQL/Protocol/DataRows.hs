@@ -6,7 +6,7 @@ module Database.PostgreSQL.Protocol.DataRows
     , decodeOneRow
     ) where
 
-import Data.Monoid ((<>))
+import Data.Monoid  ((<>))
 import Data.Word    (Word8, byteSwap32)
 import Foreign      (peek, peekByteOff, castPtr)
 import qualified Data.ByteString as B

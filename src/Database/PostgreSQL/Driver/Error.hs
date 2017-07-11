@@ -7,9 +7,11 @@ module Database.PostgreSQL.Driver.Error
     , ReceiverException(..)
     , IncorrectUsage
     , ProtocolException
+    , PeerClosedConnection
     -- * helpers
     , throwIncorrectUsage
     , throwProtocolEx
+    , throwClosedException
     , eitherToProtocolEx
     , throwErrorInIO
     , throwAuthErrorInIO
@@ -61,18 +63,30 @@ instance Exception ProtocolException where
     displayException (ProtocolException msg) =
         "Exception in protocol, " ++ BS.unpack msg
 
+-- | Exception throw when remote peer closes connections.
+data PeerClosedConnection = PeerClosedConnection 
+    deriving (Show)
+
+instance Exception PeerClosedConnection where
+    displayException _ = "Remote peer closed the connection"
+
 throwIncorrectUsage :: ByteString -> IO a
 throwIncorrectUsage = throwIO . IncorrectUsage
 
 throwProtocolEx :: ByteString -> IO a
 throwProtocolEx = throwIO . ProtocolException
 
+throwClosedException :: IO a
+throwClosedException = throwIO PeerClosedConnection
+
 eitherToProtocolEx :: Either ByteString a -> IO a
 eitherToProtocolEx = either throwProtocolEx pure
 
+-- TODO rename without throw since it actually does not throw exceptions
 throwErrorInIO :: Error -> IO (Either Error a)
 throwErrorInIO = pure . Left
 
+-- TODO rename without throw since it actually does not throw exceptions
 throwAuthErrorInIO :: AuthError -> IO (Either Error a)
 throwAuthErrorInIO = pure . Left . AuthError
 
