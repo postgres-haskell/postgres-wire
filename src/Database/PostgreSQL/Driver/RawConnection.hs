@@ -92,7 +92,7 @@ rawReceive s bs n = B.unsafeUseAsCStringLen bs $ \(prevPtr, prevLen) ->
     in B.createUptoN bufSize $ \bufPtr -> do
         B.memcpy bufPtr (castPtr prevPtr) prevLen
         len <- unsafeReceive s (bufPtr `plusPtr` prevLen) 
-                (fromIntegral bufSize) mempty
+                (fromIntegral n) mempty
         -- Received empty string means closed connection by the remote host
         when (len == 0) throwClosedException
         pure $ prevLen + fromIntegral len
