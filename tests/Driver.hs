@@ -34,6 +34,7 @@ testDriver = testGroup "Driver"
     , testCase "Empty query" testEmptyQuery
     , testCase "Query without result" testQueryWithoutResult
     , testCase "Invalid queries" testInvalidBatch
+    , testCase "Valid after postgres error" testValidAfterError
     , testCase "Describe statement" testDescribeStatement
     , testCase "Describe statement with no data" testDescribeStatementNoData
     , testCase "Describe empty statement" testDescribeStatementEmpty
@@ -154,6 +155,22 @@ testInvalidBatch = do
     assertInvalidBatch desc qs = withConnection $ \c -> do
         sendBatchAndSync c qs
         checkInvalidResult c $ length qs
+
+-- | Connection remains valid even after PostgreSQL returned error on the 
+-- previous query.
+testValidAfterError :: IO ()
+testValidAfterError = withConnection $ \c -> do
+    let a = "5"
+        rightQuery   = makeQuery1 a
+        invalidQuery = Query "SELECT $1" (V.fromList [])  Text Text NeverCache
+    sendBatchAndSync c [invalidQuery]
+    checkInvalidResult c 1
+    waitReadyForQuery c
+
+    sendBatchAndSync c [rightQuery]
+    r <- readNextData c
+    waitReadyForQuery c
+    a @=? fromMessage r
 
 -- | Describes usual statement.
 testDescribeStatement :: IO ()
