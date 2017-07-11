@@ -11,9 +11,6 @@ os:
 services:
   - postgresql
 
-addons:
-  postgresql: "9.6"
-
 # Caching so the next build will be fast too.
 cache:
   directories:
@@ -24,6 +21,7 @@ addons:
   apt:
     packages:
       - libgmp-dev
+  postgresql: "9.6"
 
 before_install:
   # Download and unpack the stack executable
