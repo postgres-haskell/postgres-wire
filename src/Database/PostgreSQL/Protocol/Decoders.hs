@@ -61,6 +61,7 @@ decodeAuthResponse = do
                 _ -> fail "Unknown authentication response"
         _ -> fail "Invalid auth response"
 
+{-# INLINE decodeHeader #-}
 decodeHeader :: Decode Header
 decodeHeader = Header <$> getWord8 <*>
                 (fromIntegral . subtract 4 <$> getWord32BE)
@@ -98,6 +99,7 @@ decodeServerMessage (Header c len) = case chr $ fromIntegral c of
         rowsCount <- fromIntegral <$> getWord16BE
         RowDescription <$> V.replicateM rowsCount decodeFieldDescription
 
+{-# INLINE decodeTransactionStatus #-}
 decodeTransactionStatus :: Decode TransactionStatus
 decodeTransactionStatus =  getWord8 >>= \t ->
     case chr $ fromIntegral t of
@@ -116,12 +118,14 @@ decodeFieldDescription = FieldDescription
     <*> getInt32BE
     <*> decodeFormat
 
+{-# INLINE decodeNotification #-}
 decodeNotification :: Decode Notification
 decodeNotification = Notification
     <$> (ServerProcessId <$> getWord32BE)
     <*> (ChannelName <$> getByteStringNull)
     <*> getByteStringNull
 
+{-# INLINE decodeFormat #-}
 decodeFormat :: Decode Format
 decodeFormat = getWord16BE >>= \f ->
     case f of
@@ -130,6 +134,7 @@ decodeFormat = getWord16BE >>= \f ->
         _ -> fail "Unknown field format"
 
 -- | Helper to lift Either in Decode
+{-# INLINE eitherToDecode #-}
 eitherToDecode :: Either B.ByteString a -> Decode a
 eitherToDecode = either (fail . BS.unpack) pure
 
