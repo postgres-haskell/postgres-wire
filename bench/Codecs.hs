@@ -4,6 +4,7 @@ import Data.ByteString.Lazy (toStrict)
 import Data.ByteString.Builder (toLazyByteString)
 import Data.ByteString (ByteString)
 import Data.Monoid
+import Data.Foldable
 import System.IO.Unsafe
 import Data.Vector as V(fromList, empty)
 import Criterion.Main
@@ -11,11 +12,14 @@ import Data.Time
 import Data.UUID
 import Data.UUID.V4 (nextRandom)
 import Data.Scientific
+import Data.Vector (Vector)
+import qualified Data.ByteString as B
 
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.Encoders
 import Database.PostgreSQL.Protocol.Store.Encode
 import Database.PostgreSQL.Protocol.Store.Decode
+import Database.PostgreSQL.Protocol.DataRows
 import qualified Database.PostgreSQL.Protocol.Codecs.Decoders as PD
 import qualified Database.PostgreSQL.Protocol.Codecs.Encoders as PE
 import qualified Database.PostgreSQL.Protocol.Codecs.PgTypes  as PGT
@@ -27,7 +31,14 @@ main = defaultMain
         , bench "Scientific" $ nf (runEncode . PE.numeric) testScientific
         , bench "UTCTime" $ nf (runEncode . PE.timestamptz) testUTCTime
         , bench "UUID" $ nf (runEncode . PE.uuid) testUUID
-      ]
+        ]
+    , bgroup "Decoding"
+        [ bench "Message" $ nf decodeMessage testDataRows
+        , bench "Message as bytes" $ nf decodeMessageBytes testDataRows
+        , bench "Scientific" $ nf (runDecode $ PD.numeric 0) testScientificEncoded
+        , bench "UTCTime" $ nf (runDecode $ PD.timestamptz 0) testUTCTimeEncoded
+        , bench "UUID" $ nf (runDecode $ PD.uuid 0) testUUIDEncoded
+        ]
     ]
 
 type QueryParams 
@@ -48,13 +59,22 @@ queryParams =
 testScientific :: Scientific
 testScientific = scientific 11111111111111 (-18)
 
+testScientificEncoded :: ByteString
+testScientificEncoded = runEncode $ PE.numeric testScientific
+
 {-# NOINLINE testUTCTime #-}
 testUTCTime :: UTCTime
 testUTCTime = unsafePerformIO getCurrentTime
 
+testUTCTimeEncoded :: ByteString
+testUTCTimeEncoded = runEncode $ PE.timestamptz testUTCTime
+
 {-# NOINLINE testUUID #-}
 testUUID :: UUID
 testUUID = unsafePerformIO nextRandom
+
+testUUIDEncoded :: ByteString
+testUUIDEncoded = runEncode $ PE.uuid testUUID
 
 encodeMessage :: QueryParams -> ByteString
 encodeMessage params = runEncode $ 
@@ -85,3 +105,37 @@ encodeMessage params = runEncode $
         , PGT.uuid
         ]
 
+decodeMessage :: DataRows -> Vector QueryParams
+decodeMessage = decodeManyRows (PD.dataRowHeader *> decoder)
+  where 
+    decoder = (,,,,,,) 
+        <$> PD.getNonNullable PD.bool
+        <*> PD.getNonNullable PD.bytea
+        <*> PD.getNonNullable PD.float8
+        <*> PD.getNonNullable PD.interval 
+        <*> PD.getNonNullable PD.numeric
+        <*> PD.getNonNullable PD.timestamptz 
+        <*> PD.getNonNullable PD.uuid
+
+decodeMessageBytes 
+    :: DataRows 
+    -> Vector ( ByteString, ByteString, ByteString, ByteString, ByteString
+              , ByteString, ByteString )
+decodeMessageBytes = decodeManyRows (PD.dataRowHeader *> decoder)
+  where 
+    decoder = (,,,,,,) 
+        <$> PD.getNonNullable PD.bytea
+        <*> PD.getNonNullable PD.bytea
+        <*> PD.getNonNullable PD.bytea
+        <*> PD.getNonNullable PD.bytea 
+        <*> PD.getNonNullable PD.bytea
+        <*> PD.getNonNullable PD.bytea 
+        <*> PD.getNonNullable PD.bytea
+
+{-# NOINLINE testDataRows #-}
+testDataRows :: DataRows
+testDataRows = DataRows chunk (DataRows chunk (DataRows chunk Empty))
+  where
+    row = unsafePerformIO $ B.readFile "bench/row.out"
+    rows = fold $ replicate 10 row
+    chunk = DataChunk 10 rows
