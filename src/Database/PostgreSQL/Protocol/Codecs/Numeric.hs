@@ -9,15 +9,16 @@ import Data.Scientific (Scientific, scientific, base10Exponent, coefficient)
 import Data.List       (unfoldr)
 
 {-# INLINE scientificToNumeric #-}
-scientificToNumeric :: Scientific -> (Int16, Word16, [Word16])
+scientificToNumeric :: Scientific -> (Word16, Int16, Word16, [Word16])
 scientificToNumeric number = 
     let a       = base10Exponent number `mod` nBaseDigits
         adjExp  = base10Exponent number - a
         adjCoef = coefficient number * (10 ^ a)
         digits  = integerToDigits $ abs adjCoef
-        weight  = fromIntegral $ length digits + adjExp `div` nBaseDigits - 1
+        count   = length digits
+        weight  = fromIntegral $ count + adjExp `div` nBaseDigits - 1
         scale   = fromIntegral . negate $ min (base10Exponent number) 0
-    in (weight, scale, digits)
+    in (fromIntegral count, weight, scale, digits)
 
 {-# INLINE numericToScientific #-}
 numericToScientific :: Integer -> Int16 -> [Word16] -> Scientific

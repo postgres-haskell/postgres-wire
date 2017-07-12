@@ -113,7 +113,24 @@ benchmark postgres-wire-bench
   hs-source-dirs:
       bench
   main-is: Bench.hs
-  other-modules:       Encoders
+  build-depends:       base
+                     , postgres-wire
+                     , bytestring
+                     , vector
+                     , postgresql-libpq
+                     , clock
+                     , optparse-applicative
+  ghc-options: -O2 -threaded -rtsopts -with-rtsopts=-s 
+  default-language:    Haskell2010
+  default-extensions:  
+    OverloadedStrings
+    GeneralizedNewtypeDeriving
+
+benchmark postgres-wire-bench-codecs
+  type: exitcode-stdio-1.0
+  hs-source-dirs:
+      bench
+  main-is: Codecs.hs
   build-depends:       base
                      , postgres-wire
                      , bytestring
@@ -123,6 +140,9 @@ benchmark postgres-wire-bench
                      , postgresql-libpq
                      , clock
                      , optparse-applicative
+                     , time
+                     , uuid
+                     , scientific
   ghc-options: -O2 -threaded -rtsopts -with-rtsopts=-s 
   default-language:    Haskell2010
   default-extensions:  

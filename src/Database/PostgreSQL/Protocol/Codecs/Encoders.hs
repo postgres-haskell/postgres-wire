@@ -76,8 +76,8 @@ bsJsonBytes bs = putWord8 1 <> putByteString bs
 {-# INLINE numeric #-}
 numeric :: Scientific -> Encode
 numeric n = 
-    let (weight, scale, digits) = scientificToNumeric n
-    in    putWord16BE (fromIntegral $ length digits)
+    let (count, weight, scale, digits) = scientificToNumeric n
+    in    putWord16BE count
        <> putInt16BE weight
        <> putWord16BE (toNumericSign n)
        <> putWord16BE scale
