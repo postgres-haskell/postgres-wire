@@ -156,8 +156,11 @@ benchLoop :: IO ()
 benchLoop = do
     counter <- newIORef 0  :: IO (IORef Word)
     content <- newIORef "" :: IO (IORef BL.ByteString)
-    -- TODO read file
-    !bs <- B.readFile "1.txt"
+    -- File contains a PostgreSQL binary response on the query:
+    --   "SELECT typname, typnamespace, typowner, typlen, typbyval,
+    --          typcategory, typispreferred, typisdefined, typdelim,
+    --          typrelid, typelem, typarray from pg_type"
+    !bs <- B.readFile "bench/pg_type_rows.out"
     writeIORef content . BL.cycle $ BL.fromStrict bs
 
     let handler dm = case dm of
@@ -170,7 +173,10 @@ benchLoop = do
             let res = preBs <> ( BL.toStrict nb)
             res `seq` pure res
     tid <- forkIO . forever $ loopExtractDataRows newChunk handler
-    threadDelay 10000000
+    threadDelay $ durationSeconds * 1000 * 1000
     killThread tid
     s <- readIORef counter
-    print $ "Data messages parsed: " ++ show s
+    print $ "Data messages parsed per second: " 
+            ++ show (s `div` fromIntegral durationSeconds)
+  where
+    durationSeconds = 10
