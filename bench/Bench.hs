@@ -95,7 +95,7 @@ benchPw statement = benchRequests createConnection $ \c -> do
     d <- readNextData c
     waitReadyForQuery c
   where
-    q = Query statement V.empty Binary Binary AlwaysCache
+    q = Query statement [] Binary Binary AlwaysCache
     createConnection = connect defaultSettings >>= 
         either (error . ("Connection error " <>) . show) pure
 
