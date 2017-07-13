@@ -14,7 +14,6 @@ import Data.UUID (UUID, fromWords)
 import Data.String (IsString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
-import qualified Data.Vector as V
 
 import Database.PostgreSQL.Driver
 import Database.PostgreSQL.Protocol.DataRows
@@ -37,7 +36,7 @@ makeCodecProperty
     -> a -> Property
 makeCodecProperty c oid encoder fd v = monadicIO $ do
     let bs = runEncode $ encoder v
-        q = Query "SELECT $1" (V.fromList [(oid, Just bs)])
+        q = Query "SELECT $1" [(oid, Just bs)]
                     Binary Binary AlwaysCache
         decoder = PD.dataRowHeader *> PD.getNonNullable fd
     r <- run $ do
@@ -60,7 +59,7 @@ makeCodecEncodeProperty
     -> a -> Property
 makeCodecEncodeProperty c oid queryString encoder fPrint v = monadicIO $ do
     let bs = runEncode $ encoder v
-        q = Query queryString (V.fromList [(oid, Just bs)])
+        q = Query queryString [(oid, Just bs)]
                 Binary Text AlwaysCache
         decoder = PD.dataRowHeader *> PD.getNonNullable PD.bytea
     r <- run $ do

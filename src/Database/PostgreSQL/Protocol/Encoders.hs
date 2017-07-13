@@ -6,7 +6,6 @@ module Database.PostgreSQL.Protocol.Encoders
 import           Data.Word (Word32)
 import           Data.Monoid ((<>))
 import           Data.Char (ord)
-import qualified Data.Vector as V
 import qualified Data.ByteString as B
 
 import Database.PostgreSQL.Protocol.Types
@@ -40,7 +39,7 @@ encodeClientMessage (Bind (PortalName portalName) (StatementName stmtName)
         -- `1` means that the specified format code is applied to all parameters
         putWord16BE 1 <>
         encodeFormat paramFormat <>
-        putWord16BE (fromIntegral $ V.length values) <>
+        putWord16BE (fromIntegral $ length values) <>
         foldMap encodeValue values <>
         -- `1` means that the specified format code is applied to all
         -- result columns (if any)
@@ -64,7 +63,7 @@ encodeClientMessage (Parse (StatementName stmtName) (StatementSQL stmt) oids)
     = prependHeader 'P' $
         putByteStringNull stmtName <>
         putByteStringNull stmt <>
-        putWord16BE (fromIntegral $ V.length oids) <>
+        putWord16BE (fromIntegral $ length oids) <>
         foldMap (putWord32BE . unOid) oids
 encodeClientMessage (PasswordMessage passtext)
     = prependHeader 'p' $ putByteStringNull $ getPassword passtext

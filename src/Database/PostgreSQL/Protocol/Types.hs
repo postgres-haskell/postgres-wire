@@ -128,7 +128,7 @@ data AuthResponse
 data ClientMessage
     = Bind !PortalName !StatementName
         !Format                      -- parameter format code, one format for all
-        !(Vector (Maybe ByteString)) -- the values of parameters, Nothing
+        ![Maybe ByteString] -- the values of parameters, Nothing
                                      -- is recognized as NULL
         !Format                  -- to apply code to all result columns
     -- Postgres use one command `close` for closing both statements and
@@ -141,7 +141,7 @@ data ClientMessage
     | DescribePortal !PortalName
     | Execute !PortalName !RowsToReceive
     | Flush
-    | Parse !StatementName !StatementSQL !(Vector Oid)
+    | Parse !StatementName !StatementSQL ![Oid]
     | PasswordMessage !PasswordText
     -- PostgreSQL names it `Query`
     | SimpleQuery !StatementSQL

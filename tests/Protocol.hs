@@ -3,7 +3,6 @@ module Protocol where
 import Data.Monoid ((<>))
 import Data.Foldable
 import Control.Monad
-import qualified Data.Vector as V
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -49,9 +48,9 @@ testExtendedQuery = withConnectionCommonAll $ \c -> do
         sname = StatementName "statement"
         pname = PortalName "portal"
         statement = StatementSQL "SELECT $1 + $2"
-    sendMessage rawConn $ Parse sname statement (V.fromList [Oid 23, Oid 23])
+    sendMessage rawConn $ Parse sname statement [Oid 23, Oid 23]
     sendMessage rawConn $
-        Bind pname sname Text (V.fromList [Just "1", Just "2"]) Text
+        Bind pname sname Text [Just "1", Just "2"] Text
     sendMessage rawConn $ Execute pname noLimitToReceive
     sendMessage rawConn $ DescribeStatement sname
     sendMessage rawConn $ DescribePortal pname
@@ -93,9 +92,9 @@ testExtendedEmptyQuery = withConnectionCommonAll $ \c -> do
         sname     = StatementName "statement"
         pname     = PortalName ""
         statement = StatementSQL ""
-    sendMessage rawConn $ Parse sname statement V.empty
+    sendMessage rawConn $ Parse sname statement []
     sendMessage rawConn $
-        Bind pname sname Text V.empty Text
+        Bind pname sname Text [] Text
     sendMessage rawConn $ Execute pname noLimitToReceive
     sendMessage rawConn Sync
     msgs <- collectUntilReadyForQuery c
@@ -112,7 +111,7 @@ testExtendedQueryNoData = withConnectionCommonAll $ \c -> do
     let rawConn   = connRawConnection c
         sname     = StatementName "statement"
         statement = StatementSQL "SET client_encoding to UTF8"
-    sendMessage rawConn $ Parse sname statement V.empty
+    sendMessage rawConn $ Parse sname statement []
     sendMessage rawConn $ DescribeStatement sname
     sendMessage rawConn Sync
 

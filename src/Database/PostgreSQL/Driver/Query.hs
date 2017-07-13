@@ -32,7 +32,7 @@ import Database.PostgreSQL.Driver.StatementStorage
 -- Public
 data Query = Query
     { qStatement    :: B.ByteString
-    , qValues       :: V.Vector (Oid, Maybe B.ByteString)
+    , qValues       :: [(Oid, Maybe B.ByteString)]
     , qParamsFormat :: Format
     , qResultFormat :: Format
     , qCachePolicy  :: CachePolicy
@@ -126,7 +126,7 @@ describeStatement
     -> IO (Either Error (V.Vector Oid, V.Vector FieldDescription))
 describeStatement conn stmt = do
     sendEncode conn $
-           encodeClientMessage (Parse sname (StatementSQL stmt) V.empty)
+           encodeClientMessage (Parse sname (StatementSQL stmt) [])
         <> encodeClientMessage (DescribeStatement sname)
         <> encodeClientMessage Sync
     msgs <-  collectUntilReadyForQuery conn

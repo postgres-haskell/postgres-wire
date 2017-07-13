@@ -7,7 +7,6 @@ import Data.Maybe
 import Data.Either
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BS
-import qualified Data.Vector as V
 import System.Socket (SocketException(..))
 import System.Mem.Weak (Weak, deRefWeak)
 import Control.Concurrent (throwTo, threadDelay, killThread)
@@ -27,7 +26,7 @@ import Database.PostgreSQL.Protocol.Types
 import Connection
 
 longQuery :: Query
-longQuery = Query "SELECT pg_sleep(5)" V.empty Text Text NeverCache
+longQuery = Query "SELECT pg_sleep(5)" [] Text Text NeverCache
 
 testFaults :: TestTree
 testFaults = testGroup "Faults"

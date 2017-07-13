@@ -45,12 +45,11 @@ testDriver = testGroup "Driver"
     ]
 
 makeQuery1 :: B.ByteString -> Query
-makeQuery1 n = Query "SELECT $1" (V.fromList [(Oid 23, Just n)])
-                    Text Text AlwaysCache
+makeQuery1 n = Query "SELECT $1" [(Oid 23, Just n)] Text Text AlwaysCache
 
 makeQuery2 :: B.ByteString -> B.ByteString -> Query
 makeQuery2 n1 n2 = Query "SELECT $1 + $2"
-    (V.fromList [(Oid 23, Just n1), (Oid 23, Just n2)]) Text Text AlwaysCache
+    [(Oid 23, Just n1), (Oid 23, Just n2)] Text Text AlwaysCache
 
 fromRight :: Either e a -> a
 fromRight (Right v) = v
@@ -108,12 +107,12 @@ testMultipleBatches = withConnection $ replicateM_ 10 . assertSingleBatch
 -- | Query is empty string.
 testEmptyQuery :: IO ()
 testEmptyQuery = assertQueryNoData $
-    Query "" V.empty Text Text NeverCache
+    Query "" [] Text Text NeverCache
 
 -- | Query than returns no datarows.
 testQueryWithoutResult :: IO ()
 testQueryWithoutResult = assertQueryNoData $
-    Query "SET client_encoding TO UTF8" V.empty Text Text NeverCache
+    Query "SET client_encoding TO UTF8" [] Text Text NeverCache
 
 -- | Asserts that query returns no data rows.
 assertQueryNoData :: Query -> IO ()
@@ -141,9 +140,9 @@ checkInvalidResult conn n = readNextData conn >>=
 testInvalidBatch :: IO ()
 testInvalidBatch = do
     let rightQuery = makeQuery1 "5"
-        q1 = Query "SEL $1" (V.fromList [(Oid 23, Just "5")]) Text Text NeverCache
-        q2 = Query "SELECT $1" (V.fromList [(Oid 23, Just "a")])  Text Text NeverCache
-        q4 = Query "SELECT $1" (V.fromList [])  Text Text NeverCache
+        q1 = Query "SEL $1" [(Oid 23, Just "5")] Text Text NeverCache
+        q2 = Query "SELECT $1" [(Oid 23, Just "a")]  Text Text NeverCache
+        q4 = Query "SELECT $1" [] Text Text NeverCache
 
     assertInvalidBatch "Parse error" [q1]
     assertInvalidBatch "Invalid param" [ q2]
@@ -162,7 +161,7 @@ testValidAfterError :: IO ()
 testValidAfterError = withConnection $ \c -> do
     let a = "5"
         rightQuery   = makeQuery1 a
-        invalidQuery = Query "SELECT $1" (V.fromList [])  Text Text NeverCache
+        invalidQuery = Query "SELECT $1" []  Text Text NeverCache
     sendBatchAndSync c [invalidQuery]
     checkInvalidResult c 1
     waitReadyForQuery c
@@ -186,15 +185,15 @@ testDescribeStatement = withConnectionCommon $ \c -> do
 testDescribeStatementNoData :: IO ()
 testDescribeStatementNoData = withConnectionCommon $ \c -> do
     r <- fromRight <$> describeStatement c "SET client_encoding TO UTF8"
-    assertBool "Should be empty" $ V.null (fst r)
-    assertBool "Should be empty" $ V.null (snd r)
+    assertBool "Should be empty" $ null (fst r)
+    assertBool "Should be empty" $ null (snd r)
 
 -- | Describes statement that is empty string.
 testDescribeStatementEmpty :: IO ()
 testDescribeStatementEmpty = withConnectionCommon $ \c -> do
     r <- fromRight <$> describeStatement c ""
-    assertBool "Should be empty" $ V.null (fst r)
-    assertBool "Should be empty" $ V.null (snd r)
+    assertBool "Should be empty" $ null (fst r)
+    assertBool "Should be empty" $ null (snd r)
 
 -- | Query using simple query protocol.
 testSimpleQuery :: IO ()
@@ -231,7 +230,7 @@ testPreparedStatementCache  = withConnection $ \c -> do
 -- | Test that large responses are properly handled
 testLargeQuery :: IO ()
 testLargeQuery = withConnection $ \c -> do
-    sendBatchAndSync c [Query largeStmt V.empty Text Text NeverCache ]
+    sendBatchAndSync c [Query largeStmt [] Text Text NeverCache ]
     r <- readNextData c
     waitReadyForQuery c
     assertBool "Should be Right" $ isRight r
@@ -243,7 +242,7 @@ testLargeQuery = withConnection $ \c -> do
 testCorrectDatarows :: IO ()
 testCorrectDatarows = withConnection $ \c -> do
     let stmt = "SELECT * FROM generate_series(1, 1000)"
-    sendBatchAndSync c [Query stmt V.empty Text Text NeverCache]
+    sendBatchAndSync c [Query stmt [] Text Text NeverCache]
     r <- readNextData c
     case r of
         Left e -> error $ show e

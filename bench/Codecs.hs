@@ -6,7 +6,6 @@ import Data.ByteString (ByteString)
 import Data.Monoid
 import Data.Foldable
 import System.IO.Unsafe
-import Data.Vector as V(fromList, empty)
 import Criterion.Main
 import Data.Time
 import Data.UUID
@@ -82,7 +81,7 @@ encodeMessage params = runEncode $
   where
     bindMessage = Bind (PortalName "") stmtName Binary 
         (encodedParams params) Binary
-    encodedParams (a, b, c, d, e, f, g) = V.fromList
+    encodedParams (a, b, c, d, e, f, g) = 
         [ Just . runEncode $ PE.bool a
         , Just . runEncode $ PE.bytea b
         , Just . runEncode $ PE.float8 c
@@ -95,7 +94,7 @@ encodeMessage params = runEncode $
     stmtName = StatementName "_pw_statement_0010"
     stmt = StatementSQL 
         "SELECT a, b, c FROM table_name WHERE name LIKE $1 AND a > $2"
-    oids = V.fromList $ map PGT.oidType
+    oids = map PGT.oidType
         [ PGT.bool
         , PGT.bytea
         , PGT.float8
