@@ -58,6 +58,7 @@ library
     BangPatterns
     OverloadedStrings
     GeneralizedNewtypeDeriving
+    LambdaCase
   cc-options:      -O2 -Wall
 
 test-suite postgres-wire-test-connection

@@ -1,5 +1,3 @@
-{-# language LambdaCase #-}
-
 module Database.PostgreSQL.Protocol.Codecs.Numeric 
     ( scientificToNumeric
     , numericToScientific

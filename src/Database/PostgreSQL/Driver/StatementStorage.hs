@@ -1,10 +1,20 @@
-module Database.PostgreSQL.Driver.StatementStorage where
+module Database.PostgreSQL.Driver.StatementStorage 
+    ( StatementStorage
+    , CachePolicy(..)
+    , newStatementStorage
+    , lookupStatement
+    , storeStatement
+    , getCacheSize
+    , defaultStatementName
+    ) where
 
-import qualified Data.HashTable.IO as H
-import qualified Data.ByteString as B
+import Data.Monoid  ((<>))
+import Data.IORef   (IORef, newIORef, readIORef, writeIORef)
+import Data.Word    (Word)
+
+import Data.ByteString       (ByteString)
 import Data.ByteString.Char8 (pack)
-import Data.Word (Word)
-import Data.IORef
+import qualified Data.HashTable.IO as H
 
 import Database.PostgreSQL.Protocol.Types
 
@@ -21,16 +31,17 @@ data CachePolicy
 newStatementStorage :: IO StatementStorage
 newStatementStorage = StatementStorage <$> H.new <*> newIORef 0
 
+{-# INLINE lookupStatement #-}
 lookupStatement :: StatementStorage -> StatementSQL -> IO (Maybe StatementName)
 lookupStatement (StatementStorage table _) = H.lookup table
 
--- TODO place right name
 -- TODO info about exceptions and mask
+{-# INLINE storeStatement #-}
 storeStatement :: StatementStorage -> StatementSQL -> IO StatementName
 storeStatement (StatementStorage table counter) stmt = do
     n <- readIORef counter
     writeIORef counter $ n + 1
-    let name = StatementName . pack $ show n
+    let name = StatementName . (statementPrefix <>) . pack $ show n
     H.insert table stmt name
     pure name
 
@@ -39,4 +50,7 @@ getCacheSize (StatementStorage _ counter) = readIORef counter
 
 defaultStatementName :: StatementName
 defaultStatementName = StatementName ""
+
+statementPrefix :: ByteString
+statementPrefix = "_pw_statement_"
 

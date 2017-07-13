@@ -12,13 +12,12 @@ module Database.PostgreSQL.Driver.Query
     , collectUntilReadyForQuery
     ) where
 
-import Data.Foldable
-import Data.Monoid
-import Data.Bifunctor
-import qualified Data.Vector as V
-import qualified Data.ByteString as B
 import Control.Concurrent.STM.TQueue (TQueue, readTQueue )
-import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM        (atomically)
+import Data.Foldable                 (fold)
+import Data.Monoid                   ((<>))
+import Data.ByteString               (ByteString)
+import Data.Vector                   (Vector)
 
 import Database.PostgreSQL.Protocol.Encoders
 import Database.PostgreSQL.Protocol.Store.Encode
@@ -31,26 +30,30 @@ import Database.PostgreSQL.Driver.StatementStorage
 
 -- Public
 data Query = Query
-    { qStatement    :: B.ByteString
-    , qValues       :: [(Oid, Maybe Encode)]
-    , qParamsFormat :: Format
-    , qResultFormat :: Format
-    , qCachePolicy  :: CachePolicy
+    { qStatement    :: !ByteString
+    , qValues       :: ![(Oid, Maybe Encode)]
+    , qParamsFormat :: !Format
+    , qResultFormat :: !Format
+    , qCachePolicy  :: !CachePolicy
     } deriving (Show)
 
 -- | Public
+{- INLINE sendBatchAndFlush #-}
 sendBatchAndFlush :: Connection -> [Query] -> IO ()
 sendBatchAndFlush = sendBatchEndBy Flush
 
 -- | Public
+{-# INLINE sendBatchAndSync #-}
 sendBatchAndSync :: Connection -> [Query] -> IO ()
 sendBatchAndSync = sendBatchEndBy Sync
 
 -- | Public
+{-# INLINE sendSync #-}
 sendSync :: Connection -> IO ()
 sendSync conn = sendEncode conn $ encodeClientMessage Sync
 
 -- | Public
+{-# INLINABLE readNextData #-}
 readNextData :: Connection -> IO (Either Error DataRows)
 readNextData conn =
     readChan (connOutChan conn) >>=
@@ -62,6 +65,7 @@ readNextData conn =
         DataReady          -> throwIncorrectUsage
             "Expected DataRow message, but got ReadyForQuery"
 
+{-# INLINABLE waitReadyForQuery #-}
 waitReadyForQuery :: Connection -> IO (Either Error ())
 waitReadyForQuery conn =
     readChan (connOutChan conn) >>=
@@ -77,6 +81,7 @@ waitReadyForQuery conn =
         DataReady        -> pure $ Right ()
 
 -- Helper
+{-# INLINE sendBatchEndBy #-}
 sendBatchEndBy :: ClientMessage -> Connection -> [Query] -> IO ()
 sendBatchEndBy msg conn qs = do
     batch <- constructBatch conn qs
@@ -90,28 +95,27 @@ constructBatch conn = fmap fold . traverse constructSingle
     pname = PortalName ""
     constructSingle q = do
         let stmtSQL = StatementSQL $ qStatement q
-        (sname, parseMessage) <- case qCachePolicy q of
-            AlwaysCache -> do
-                mName <- lookupStatement storage stmtSQL
-                case mName of
-                    Nothing -> do
-                        newName <- storeStatement storage stmtSQL
-                        pure (newName, encodeClientMessage $
-                            Parse newName stmtSQL (fst <$> qValues q))
-                    Just name -> pure (name, mempty)
-            NeverCache -> do
-                let newName = defaultStatementName
-                pure (newName, encodeClientMessage $
-                    Parse  newName stmtSQL (fst <$> qValues q))
-        let bindMessage = encodeClientMessage $
-                Bind pname sname (qParamsFormat q) (snd <$> qValues q)
+        (stmtName, needParse) <- case qCachePolicy q of
+            AlwaysCache -> lookupStatement storage stmtSQL >>= \case
+                Nothing     -> do
+                    newName <- storeStatement storage stmtSQL
+                    pure (newName, True)
+                Just name   -> 
+                    pure (name, False)
+            NeverCache -> pure (defaultStatementName, True)
+        let parseMessage = if needParse 
+                then encodeClientMessage $ 
+                    Parse stmtName stmtSQL (fst <$> qValues q)
+                else mempty
+            bindMessage = encodeClientMessage $
+                Bind pname stmtName (qParamsFormat q) (snd <$> qValues q)
                     (qResultFormat q)
             executeMessage = encodeClientMessage $
                 Execute pname noLimitToReceive
         pure $ parseMessage <> bindMessage <> executeMessage
 
 -- | Public
-sendSimpleQuery :: ConnectionCommon -> B.ByteString -> IO (Either Error ())
+sendSimpleQuery :: ConnectionCommon -> ByteString -> IO (Either Error ())
 sendSimpleQuery conn q = do
     sendMessage (connRawConnection conn) $ SimpleQuery (StatementSQL q)
     (checkErrors =<<) <$> collectUntilReadyForQuery conn
@@ -122,8 +126,8 @@ sendSimpleQuery conn q = do
 -- | Public
 describeStatement
     :: ConnectionCommon
-    -> B.ByteString
-    -> IO (Either Error (V.Vector Oid, V.Vector FieldDescription))
+    -> ByteString
+    -> IO (Either Error (Vector Oid, Vector FieldDescription))
 describeStatement conn stmt = do
     sendEncode conn $
            encodeClientMessage (Parse sname (StatementSQL stmt) [])
@@ -135,7 +139,7 @@ describeStatement conn stmt = do
     sname = StatementName ""
     parseMessages msgs = case msgs of
         [ParameterDescription params, NoData]
-            -> pure $ Right (params, V.empty)
+            -> pure $ Right (params, mempty)
         [ParameterDescription params, RowDescription fields]
             -> pure $ Right (params, fields)
         xs  -> maybe
@@ -160,5 +164,6 @@ findFirstError []                       = Nothing
 findFirstError (ErrorResponse desc : _) = Just desc
 findFirstError (_ : xs)                 = findFirstError xs
 
+{-# INLINE readChan #-}
 readChan :: TQueue a -> IO a
 readChan = atomically . readTQueue

@@ -56,11 +56,11 @@ import Database.PostgreSQL.Driver.RawConnection
 -- | Public
 -- Connection parametrized by message type in chan.
 data AbsConnection mt = AbsConnection
-    { connRawConnection     :: RawConnection
-    , connReceiverThread    :: Weak ThreadId
-    , connStatementStorage  :: StatementStorage
-    , connParameters        :: ConnectionParameters
-    , connOutChan           :: TQueue (Either ReceiverException mt)
+    { connRawConnection     :: !RawConnection
+    , connReceiverThread    :: !(Weak ThreadId)
+    , connStatementStorage  :: !StatementStorage
+    , connParameters        :: !ConnectionParameters
+    , connOutChan           :: !(TQueue (Either ReceiverException mt))
     }
 
 type Connection       = AbsConnection DataMessage
@@ -122,15 +122,18 @@ connectCommon' settings msgFilter = connectWith settings $ \rawConn params ->
 
 -- Low-level sending functions
 
+{-# INLINE sendStartMessage #-}
 sendStartMessage :: RawConnection -> StartMessage -> IO ()
 sendStartMessage rawConn msg = void $
     rSend rawConn . runEncode $ encodeStartMessage msg
 
 -- Only for testings and simple queries
+{-# INLINE sendMessage #-}
 sendMessage :: RawConnection -> ClientMessage -> IO ()
 sendMessage rawConn msg = void $
     rSend rawConn . runEncode $ encodeClientMessage msg
 
+{-# INLINE sendEncode #-}
 sendEncode :: AbsConnection c -> Encode -> IO ()
 sendEncode conn = void . rSend (connRawConnection conn) . runEncode
 
@@ -290,6 +293,11 @@ receiverThreadCommon rawConn chan msgFilter ntfHandler = go ""
     dispatchIfNotification (NotificationResponse ntf) handler = handler ntf
     dispatchIfNotification _ _ = pure ()
 
+-- | Helper to read from queue.
+{-# INLINE writeChan #-}
+writeChan :: TQueue a -> a -> IO ()
+writeChan q = atomically . writeTQueue q
+
 defaultNotificationHandler :: NotificationHandler
 defaultNotificationHandler = const $ pure ()
 
@@ -331,8 +339,4 @@ defaultFilter msg = case msg of
     ReadyForQuery{}         -> True
     -- as result for `describe` message
     RowDescription{}       -> True
-
--- | Helper to read from queue.
-writeChan :: TQueue a -> a -> IO ()
-writeChan q = atomically . writeTQueue q
 
