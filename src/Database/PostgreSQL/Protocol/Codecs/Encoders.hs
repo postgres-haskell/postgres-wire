@@ -1,16 +1,30 @@
-module Database.PostgreSQL.Protocol.Codecs.Encoders where
+module Database.PostgreSQL.Protocol.Codecs.Encoders 
+    ( bool
+    , bytea
+    , char
+    , date
+    , float4
+    , float8
+    , int2
+    , int4
+    , int8
+    , interval
+    , bsJsonText
+    , bsJsonBytes
+    , numeric
+    , bsText
+    , timestamp
+    , timestamptz
+    , uuid
+    ) where
 
-import Data.Word
-import Data.Monoid ((<>))
-import Data.Int
-import Data.Char
-import Data.Scientific
-import Data.UUID (UUID, toWords)
-import Data.Time (Day, UTCTime, LocalTime, DiffTime)
-import qualified Data.ByteString as B
-import qualified Data.Vector as V
-
-import Control.Monad
+import Data.ByteString  (ByteString)
+import Data.Char        (ord)
+import Data.Int         (Int16, Int32, Int64)
+import Data.Monoid      ((<>))
+import Data.Scientific  (Scientific)
+import Data.Time        (Day, UTCTime, LocalTime, DiffTime)
+import Data.UUID        (UUID, toWords)
 
 import Database.PostgreSQL.Protocol.Store.Encode
 import Database.PostgreSQL.Protocol.Types
@@ -27,7 +41,7 @@ bool False = putWord8 0
 bool True  = putWord8 1
 
 {-# INLINE bytea #-}
-bytea :: B.ByteString -> Encode
+bytea :: ByteString -> Encode
 bytea = putByteString
 
 {-# INLINE char #-}
@@ -65,12 +79,12 @@ interval v = let (mcs, days, months) = diffTimeToInterval v
 
 -- | Encodes representation of JSON as @ByteString@.
 {-# INLINE bsJsonText #-}
-bsJsonText :: B.ByteString -> Encode
+bsJsonText :: ByteString -> Encode
 bsJsonText = putByteString
 
 -- | Encodes representation of JSONB as @ByteString@.
 {-# INLINE bsJsonBytes #-}
-bsJsonBytes :: B.ByteString -> Encode
+bsJsonBytes :: ByteString -> Encode
 bsJsonBytes bs = putWord8 1 <> putByteString bs
 
 {-# INLINE numeric #-}
@@ -85,7 +99,7 @@ numeric n =
 
 -- | Encodes text.
 {-# INLINE bsText #-}
-bsText :: B.ByteString -> Encode
+bsText :: ByteString -> Encode
 bsText = putByteString
 
 {-# INLINE timestamp #-}

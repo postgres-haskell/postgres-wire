@@ -1,12 +1,17 @@
 {-# language LambdaCase #-}
 
-module Database.PostgreSQL.Protocol.Codecs.Numeric where
+module Database.PostgreSQL.Protocol.Codecs.Numeric 
+    ( scientificToNumeric
+    , numericToScientific
+    , toNumericSign
+    , fromNumericSign 
+    ) where
 
-import Data.Word       (Word16)
-import Data.Int        (Int16)
 import Data.Foldable   (foldl')
-import Data.Scientific (Scientific, scientific, base10Exponent, coefficient)
+import Data.Int        (Int16)
 import Data.List       (unfoldr)
+import Data.Scientific (Scientific, scientific, base10Exponent, coefficient)
+import Data.Word       (Word16)
 
 {-# INLINE scientificToNumeric #-}
 scientificToNumeric :: Scientific -> (Word16, Int16, Word16, [Word16])

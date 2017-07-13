@@ -1,5 +1,6 @@
 {-# language RecordWildCards #-}
 
+-- TODO doc
 -- Helper parser that works with ByteString, 
 -- not Decode
 module Database.PostgreSQL.Protocol.Parsers 
@@ -10,12 +11,13 @@ module Database.PostgreSQL.Protocol.Parsers
     , parseCommandResult
     ) where
 
-import           Data.Monoid ((<>))
-import           Data.Char (chr)
-import           Data.Maybe (fromMaybe)
+import Data.Char                    (chr)
+import Data.Maybe                   (fromMaybe)
+import Data.Monoid                  ((<>))
+import Text.Read                    (readMaybe)
+
+import Data.ByteString.Char8 as BS  (readInteger, readInt, unpack, pack)
 import qualified Data.ByteString as B
-import           Data.ByteString.Char8 as BS(readInteger, readInt, unpack, pack)
-import           Text.Read (readMaybe)
 import qualified Data.HashMap.Strict as HM
 
 import Database.PostgreSQL.Protocol.Types

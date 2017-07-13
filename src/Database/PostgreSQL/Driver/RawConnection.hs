@@ -4,10 +4,11 @@ module Database.PostgreSQL.Driver.RawConnection
     , createRawConnection
     ) where
 
-import Control.Monad (void, when)
-import Control.Exception (bracketOnError, try)
-import Data.Monoid ((<>))
-import Foreign (castPtr, plusPtr)
+import Control.Monad        (void, when)
+import Control.Exception    (bracketOnError, try)
+import Data.Monoid          ((<>))
+import Foreign              (castPtr, plusPtr)
+
 import System.Socket (socket, AddressInfo(..), getAddressInfo, socketAddress,
                       aiV4Mapped, AddressInfoException, Socket, connect,
                       close, receive, send)

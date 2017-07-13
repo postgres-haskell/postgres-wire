@@ -1,17 +1,36 @@
-module Database.PostgreSQL.Protocol.Codecs.Decoders where
+module Database.PostgreSQL.Protocol.Codecs.Decoders 
+    ( dataRowHeader
+    , getNonNullable
+    , getNullable
+    , FieldDecoder
+    , bool
+    , bytea
+    , char
+    , date
+    , float4
+    , float8
+    , int2
+    , int4
+    , int8
+    , interval
+    , bsJsonText
+    , bsJsonBytes
+    , numeric
+    , bsText
+    , timestamp
+    , timestamptz
+    , uuid
+    ) where
 
-import Data.Word
-import Data.Int
-import Data.Maybe
-import Data.Char
-import Data.Scientific
-import Data.UUID (UUID, fromWords)
-import Data.Time (Day, UTCTime, LocalTime, DiffTime)
-import qualified Data.ByteString as B
+import Prelude hiding   (bool)
+import Control.Monad    (replicateM, (<$!>))
+import Data.ByteString  (ByteString)
+import Data.Char        (chr)
+import Data.Int         (Int16, Int32, Int64)
+import Data.Scientific  (Scientific)
+import Data.Time        (Day, UTCTime, LocalTime, DiffTime)
+import Data.UUID        (UUID, fromWords)
 import qualified Data.Vector as V
-
-import Control.Monad
-import Prelude hiding (bool)
 
 import Database.PostgreSQL.Protocol.Store.Decode
 import Database.PostgreSQL.Protocol.Types
@@ -85,7 +104,7 @@ bool :: FieldDecoder Bool
 bool _ = (== 1) <$> getWord8
 
 {-# INLINE bytea #-}
-bytea :: FieldDecoder B.ByteString
+bytea :: FieldDecoder ByteString
 bytea = getByteString
 
 {-# INLINE char #-}
@@ -122,12 +141,12 @@ interval _ = intervalToDiffTime <$> getInt64BE <*> getInt32BE <*> getInt32BE
 
 -- | Decodes representation of JSON as @ByteString@.
 {-# INLINE bsJsonText #-}
-bsJsonText :: FieldDecoder B.ByteString
+bsJsonText :: FieldDecoder ByteString
 bsJsonText = getByteString
 
 -- | Decodes representation of JSONB as @ByteString@.
 {-# INLINE bsJsonBytes #-}
-bsJsonBytes :: FieldDecoder B.ByteString
+bsJsonBytes :: FieldDecoder ByteString
 bsJsonBytes len = getWord8 *> getByteString (len - 1)
 
 {-# INLINE numeric #-}
@@ -142,7 +161,7 @@ numeric _ = do
 
 -- | Decodes text without applying encoding.
 {-# INLINE bsText #-}
-bsText :: FieldDecoder B.ByteString
+bsText :: FieldDecoder ByteString
 bsText = getByteString
 
 {-# INLINE timestamp #-}

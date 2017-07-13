@@ -8,10 +8,11 @@ module Database.PostgreSQL.Protocol.Decoders
     , decodeServerMessage
     ) where
 
-import           Data.Char (chr)
-import qualified Data.Vector as V
+import Data.Char (chr)
+
+import Data.ByteString.Char8 as BS(unpack)
 import qualified Data.ByteString as B
-import           Data.ByteString.Char8 as BS(unpack)
+import qualified Data.Vector as V
 
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.Store.Decode

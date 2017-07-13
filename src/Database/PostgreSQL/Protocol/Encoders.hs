@@ -3,9 +3,10 @@ module Database.PostgreSQL.Protocol.Encoders
     , encodeClientMessage
     ) where
 
-import           Data.Word (Word32)
-import           Data.Monoid ((<>))
-import           Data.Char (ord)
+import Data.Char    (ord)
+import Data.Monoid  ((<>))
+import Data.Word    (Word32)
+
 import qualified Data.ByteString as B
 
 import Database.PostgreSQL.Protocol.Types

@@ -23,33 +23,34 @@ module Database.PostgreSQL.Driver.Connection
     , defaultFilter
     ) where
 
-import Data.Monoid ((<>))
-import Control.Monad (void, when)
-import Control.Concurrent (forkIOWithUnmask, killThread, ThreadId, threadDelay
-                          , mkWeakThreadId)
+import Data.Monoid                   ((<>))
+import Control.Concurrent            (forkIOWithUnmask, killThread, ThreadId, 
+                                      threadDelay , mkWeakThreadId)
+import Control.Concurrent.STM        (atomically)
 import Control.Concurrent.STM.TQueue (TQueue, writeTQueue, newTQueueIO)
-import Control.Concurrent.STM (atomically)
-import Control.Exception (SomeException, bracketOnError, catch, mask_, 
-                          catch, throwIO)
-import GHC.Conc (labelThread)
-import Crypto.Hash (hash, Digest, MD5)
-import System.Mem.Weak (Weak, deRefWeak)
-import System.Socket (eBadFileDescriptor)
+import Control.Exception             (SomeException, bracketOnError, catch, 
+                                      mask_, catch, throwIO)
+import Control.Monad                 (void, when)
+import GHC.Conc                      (labelThread)
+import System.Mem.Weak               (Weak, deRefWeak)
+
+import Crypto.Hash                   (hash, Digest, MD5)
+import System.Socket                 (eBadFileDescriptor)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BS(pack, unpack)
 
+import Database.PostgreSQL.Protocol.DataRows
 import Database.PostgreSQL.Protocol.Encoders
 import Database.PostgreSQL.Protocol.Decoders
 import Database.PostgreSQL.Protocol.Parsers
-import Database.PostgreSQL.Protocol.DataRows
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.Store.Encode (runEncode, Encode)
 import Database.PostgreSQL.Protocol.Store.Decode (runDecode)
 
+import Database.PostgreSQL.Driver.Error
 import Database.PostgreSQL.Driver.Settings
 import Database.PostgreSQL.Driver.StatementStorage
-import Database.PostgreSQL.Driver.Error
 import Database.PostgreSQL.Driver.RawConnection
 
 -- | Public

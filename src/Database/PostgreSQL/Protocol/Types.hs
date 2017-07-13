@@ -10,12 +10,14 @@ module Database.PostgreSQL.Protocol.Types where
 -- * bind command can have different formats for parameters and results
 --   but we assume that there will be one format for all.
 
-import Data.Word (Word32, Word8, Word16)
-import Data.Int (Int32, Int16)
-import Data.Hashable (Hashable)
-import Data.ByteString as B(ByteString)
+import Data.Int             (Int32, Int16)
+import Data.Word            (Word32, Word8, Word16)
+
+import Data.ByteString as B (ByteString)
+import Data.Hashable        (Hashable)
+import Data.Vector          (Vector)
 import qualified Data.ByteString.Lazy as BL(ByteString)
-import Data.Vector (Vector)
+
 import Database.PostgreSQL.Protocol.Store.Encode (Encode)
 
 -- Common

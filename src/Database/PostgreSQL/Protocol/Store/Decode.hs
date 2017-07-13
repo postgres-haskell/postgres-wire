@@ -1,18 +1,32 @@
-module Database.PostgreSQL.Protocol.Store.Decode where
+module Database.PostgreSQL.Protocol.Store.Decode 
+    ( Decode
+    , runDecode
+    , runDecodeIO
+    , embedIO
+    , skipBytes
+    , getByteString
+    , getByteStringNull
+    , getWord8
+    , getWord16BE
+    , getWord32BE
+    , getWord64BE
+    , getInt16BE
+    , getInt32BE
+    , getInt64BE
+    , getFloat32BE
+    , getFloat64BE
+    ) where
 
-import Prelude hiding (takeWhile)
+import Prelude hiding   (takeWhile)
+import Data.Int         (Int16, Int32, Int64)
+import Data.Word        (Word8, Word16, Word32, Word64, 
+                         byteSwap16, byteSwap32, byteSwap64)
+import Foreign          (Ptr, Storable, alloca, peek, poke, castPtr, plusPtr)
+
+import Data.Store.Core  (Peek(..), PeekResult(..), decodeExPortionWith, 
+                         decodeIOPortionWith)
 import qualified Data.ByteString as B
-import Data.Word
-import Data.Int
-import Data.Tuple
 
-import Data.Store.Core
-
-import Foreign
-import Control.Monad
-import Control.Applicative
-import Data.ByteString (ByteString)
-import qualified Data.ByteString.Internal as B
 
 newtype Decode a = Decode (Peek a)
     deriving (Functor, Applicative, Monad)
@@ -41,8 +55,6 @@ prim len f = Decode $ Peek $ \ps ptr -> do
     !v <- f ptr
     let !newPtr = ptr `plusPtr` len
     pure (PeekResult newPtr v)
-
--- Public
 
 {-# INLINE skipBytes #-}
 skipBytes :: Int -> Decode ()

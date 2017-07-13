@@ -1,7 +1,34 @@
 {-
    Oids for built-in types.
 -}
-module Database.PostgreSQL.Protocol.Codecs.PgTypes where
+module Database.PostgreSQL.Protocol.Codecs.PgTypes 
+    ( Oids(..)
+    -- * Primitives
+    , bool
+    , bytea
+    , char
+    , date
+    , float4
+    , float8
+    , int2
+    , int4
+    , int8
+    , interval
+    , json
+    , jsonb
+    , numeric
+    , text
+    , timestamp
+    , timestamptz
+    , uuid 
+    -- * Ranges
+    , daterange
+    , int4range
+    , int8range
+    , numrange
+    , tsrange
+    , tstzrange
+    ) where
 
 import Data.Word (Word32)
 

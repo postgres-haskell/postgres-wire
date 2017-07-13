@@ -50,7 +50,6 @@ intervalToDiffTime mcs days months = picosecondsToDiffTime . mcsToPcs $
     microsInDay * (fromIntegral months * daysInMonth + fromIntegral days) 
     + fromIntegral mcs
 
--- TODO consider adjusted encoding
 {-# INLINE diffTimeToInterval #-}
 diffTimeToInterval :: DiffTime -> (Int64, Int32, Int32)
 diffTimeToInterval dt = (fromIntegral $ diffTimeToMcs dt, 0, 0)

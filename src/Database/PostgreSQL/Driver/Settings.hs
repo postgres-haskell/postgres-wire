@@ -4,8 +4,8 @@ module Database.PostgreSQL.Driver.Settings
     , defaultConnectionSettings
     ) where
 
-import Data.Word (Word16)
-import Data.ByteString (ByteString)
+import Data.Word        (Word16)
+import Data.ByteString  (ByteString)
 
 data TlsMode = RequiredTls | NoTls
     deriving (Show, Eq)
@@ -26,6 +26,7 @@ data ConnectionSettings = ConnectionSettings
     , settingsTls      :: TlsMode
     } deriving (Show)
 
+-- TODO change defaults
 defaultConnectionSettings :: ConnectionSettings
 defaultConnectionSettings = ConnectionSettings
     { settingsHost     = "localhost"

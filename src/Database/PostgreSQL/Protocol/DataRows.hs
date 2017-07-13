@@ -1,3 +1,4 @@
+{-# language ForeignFunctionInterface #-}
 module Database.PostgreSQL.Protocol.DataRows 
     ( loopExtractDataRows
     , countDataRows
@@ -6,22 +7,24 @@ module Database.PostgreSQL.Protocol.DataRows
     , decodeOneRow
     ) where
 
-import Data.Monoid  ((<>))
-import Data.Word    (Word8, byteSwap32)
-import Foreign      (peek, peekByteOff, castPtr)
+import Data.Foldable    (traverse_)
+import Data.Monoid      ((<>))
+import Data.Word        (Word8, byteSwap32)
+import Foreign          (Ptr, alloca, peek, peekByteOff, castPtr)
+import Foreign.C.Types  (CInt, CSize(..), CChar, CULong)
+import Foreign          (Ptr, peek, alloca)
+import System.IO.Unsafe (unsafePerformIO)
+
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Unsafe as B
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as MV
 import qualified Data.List as L
-import Data.Foldable
-import System.IO.Unsafe
 
 import Database.PostgreSQL.Driver.Error
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.Parsers
 import Database.PostgreSQL.Protocol.Store.Decode
-import Database.PostgreSQL.Protocol.Utils
 
 -- Optimized loop for extracting chunks of DataRows.
 -- Ignores all messages from database that do not relate to data.
@@ -188,3 +191,29 @@ countDataRows = foldlDataRows (\acc (DataChunk c _) -> acc + c) 0
 {-# INLINE flattenDataRows #-}
 flattenDataRows :: DataRows -> B.ByteString
 flattenDataRows = foldlDataRows (\acc (DataChunk _ bs) -> acc <> bs) ""
+
+--
+-- C utils
+--
+
+data ScanRowResult = ScanRowResult
+    {-# UNPACK #-} !DataChunk     -- chunk of datarows, may be empty
+    {-# UNPACK #-} !B.ByteString  -- the rest of string
+    {-# UNPACK #-} !Int           -- reason code
+
+-- | Scans `ByteString` for a chunk of `DataRow`s.
+{-# INLINE scanDataRows #-}
+scanDataRows :: B.ByteString -> IO ScanRowResult
+scanDataRows bs =
+    alloca $ \countPtr -> 
+        alloca $ \reasonPtr ->
+            B.unsafeUseAsCStringLen bs $ \(ptr, len) -> do
+                offset <- fromIntegral <$>
+                    c_scan_datarows ptr (fromIntegral len) countPtr reasonPtr
+                reason <- fromIntegral <$> peek reasonPtr
+                count  <- fromIntegral <$> peek countPtr
+                let (ch, rest) = B.splitAt offset bs
+                pure $ ScanRowResult (DataChunk count ch) rest reason
+
+foreign import ccall unsafe "static pw_utils.h scan_datarows" c_scan_datarows
+    :: Ptr CChar -> CSize -> Ptr CULong -> Ptr CInt -> IO CSize

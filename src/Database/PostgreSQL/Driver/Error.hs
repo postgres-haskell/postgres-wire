@@ -17,9 +17,10 @@ module Database.PostgreSQL.Driver.Error
     , throwAuthErrorInIO
     ) where
 
-import Control.Exception (throwIO, Exception(..), SomeException)
-import Data.ByteString (ByteString)
-import System.Socket (AddressInfoException)
+import Control.Exception    (throwIO, Exception(..), SomeException)
+
+import Data.ByteString      (ByteString)
+import System.Socket        (AddressInfoException)
 import qualified Data.ByteString.Char8 as BS
 
 import Database.PostgreSQL.Protocol.Types (ErrorDesc)

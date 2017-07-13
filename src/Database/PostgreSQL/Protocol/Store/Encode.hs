@@ -1,15 +1,30 @@
-module Database.PostgreSQL.Protocol.Store.Encode where
+module Database.PostgreSQL.Protocol.Store.Encode 
+    ( Encode
+    , getEncodeLen
+    , runEncode
+    , putByteString
+    , putByteStringNull
+    , putWord8
+    , putWord16BE
+    , putWord32BE
+    , putWord64BE
+    , putInt16BE
+    , putInt32BE
+    , putInt64BE
+    , putFloat32BE
+    , putFloat64BE
+    ) where
 
-import Data.Monoid (Monoid(..), (<>))
-import Foreign (poke, plusPtr, Ptr)
-import Data.Int (Int16, Int32)
-import Data.Word 
+import Data.Monoid  (Monoid(..), (<>))
+import Foreign      (Storable, alloca, peek, poke, castPtr, plusPtr, Ptr)
+import Data.Int     (Int16, Int32, Int64)
+import Data.Word    (Word8, Word16, Word32, Word64, 
+                     byteSwap16, byteSwap32, byteSwap64)
 
-import Foreign
-import Data.ByteString (ByteString)
-import Data.ByteString.Internal as B(toForeignPtr)
-import Data.Store.Core (Poke(..), unsafeEncodeWith, pokeStatePtr,
-                        pokeFromForeignPtr)
+import Data.ByteString          (ByteString)
+import Data.ByteString.Internal (toForeignPtr)
+import Data.Store.Core          (Poke(..), unsafeEncodeWith, pokeStatePtr,
+                                 pokeFromForeignPtr)
 
 data Encode = Encode {-# UNPACK #-} !Int !(Poke ())
 
