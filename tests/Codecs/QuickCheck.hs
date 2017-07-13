@@ -8,6 +8,8 @@ import Test.QuickCheck.Monadic
 
 import Data.Scientific as S
 import Data.Time
+import Text.Printf
+import Data.List as L
 import Data.UUID (UUID, fromWords)
 import Data.String (IsString)
 import qualified Data.ByteString as B
@@ -118,20 +120,30 @@ testCodecsEncodeDecode = testGroup "Codecs property 'encode . decode = id'"
 testCodecsEncodePrint :: TestTree
 testCodecsEncodePrint = testGroup 
     "Codecs property 'Encoded value Postgres = value in Haskell'"
-    [ mkCodecEncodeTest "uuid" PGT.uuid qBasic PE.uuid show
+    [ mkCodecEncodeTest "bool" PGT.bool qBasic PE.bool displayBool
     , mkCodecEncodeTest "date" PGT.date qBasic PE.date show
-    , mkCodecEncodeTest "timestamp" PGT.timestamp qBasic PE.timestamp show
-    , mkCodecEncodeTest "timestamptz" PGT.timestamptz 
-        "SELECT ($1 at time zone 'UTC')||' UTC'" PE.timestamptz show
+    , mkCodecEncodeTest "float8" PGT.float8 
+        "SELECT trim(to_char($1, '99999999999990.9999999999'))" 
+         PE.float8 (printf "%.10f")
+    , mkCodecEncodeTest "int8" PGT.int8 qBasic PE.int8 show
     , mkCodecEncodeTest "interval" PGT.interval 
         "SELECT extract(epoch from $1)||'s'" PE.interval show
     , mkCodecEncodeTest "numeric" PGT.numeric qBasic PE.numeric 
         displayScientific
+    , mkCodecEncodeTest "timestamp" PGT.timestamp qBasic PE.timestamp show
+    , mkCodecEncodeTest "timestamptz" PGT.timestamptz 
+        "SELECT ($1 at time zone 'UTC')||' UTC'" PE.timestamptz show
+    , mkCodecEncodeTest "uuid" PGT.uuid qBasic PE.uuid show
     ]
   where
     qBasic = "SELECT $1"
+
     displayScientific s | isInteger s = show $ ceiling s
                         | otherwise = formatScientific S.Fixed Nothing s
+
+    displayBool False = "f"
+    displayBool True  = "t"
+
 --
 -- Orphan instances
 --
