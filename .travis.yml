@@ -7,6 +7,9 @@ language: generic
 
 os:
   - linux
+env:
+  - STACK_YAML=stack-ghc7.10.3.yaml
+  - STACK_YAML=stack-ghc8.0.2.yaml
 
 services:
   - postgresql
