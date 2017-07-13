@@ -35,8 +35,7 @@ makeCodecProperty
     -> Oid -> (a -> Encode) -> PD.FieldDecoder a 
     -> a -> Property
 makeCodecProperty c oid encoder fd v = monadicIO $ do
-    let bs = runEncode $ encoder v
-        q = Query "SELECT $1" [(oid, Just bs)]
+    let q = Query "SELECT $1" [(oid, Just $ encoder v)]
                     Binary Binary AlwaysCache
         decoder = PD.dataRowHeader *> PD.getNonNullable fd
     r <- run $ do
@@ -58,8 +57,7 @@ makeCodecEncodeProperty
     -> (a -> String)
     -> a -> Property
 makeCodecEncodeProperty c oid queryString encoder fPrint v = monadicIO $ do
-    let bs = runEncode $ encoder v
-        q = Query queryString [(oid, Just bs)]
+    let q = Query queryString [(oid, Just $ encoder v)]
                 Binary Text AlwaysCache
         decoder = PD.dataRowHeader *> PD.getNonNullable PD.bytea
     r <- run $ do

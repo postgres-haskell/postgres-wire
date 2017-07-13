@@ -20,6 +20,9 @@ instance Monoid Encode where
     {-# INLINE mappend #-}
     (Encode len1 f1) `mappend` (Encode len2 f2) = Encode (len1 + len2) (f1 *> f2)
 
+instance Show Encode where
+    show (Encode len _) = "Encode instance of length " ++ show len
+
 {-# INLINE getEncodeLen #-}
 getEncodeLen :: Encode -> Int
 getEncodeLen (Encode len _) = len

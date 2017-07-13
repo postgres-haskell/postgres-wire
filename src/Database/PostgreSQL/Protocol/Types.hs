@@ -16,6 +16,7 @@ import Data.Hashable (Hashable)
 import Data.ByteString as B(ByteString)
 import qualified Data.ByteString.Lazy as BL(ByteString)
 import Data.Vector (Vector)
+import Database.PostgreSQL.Protocol.Store.Encode (Encode)
 
 -- Common
 newtype Oid           = Oid { unOid :: Word32 }   deriving (Show, Eq)
@@ -128,9 +129,9 @@ data AuthResponse
 data ClientMessage
     = Bind !PortalName !StatementName
         !Format                      -- parameter format code, one format for all
-        ![Maybe ByteString] -- the values of parameters, Nothing
+        ![Maybe Encode]              -- the values of parameters, Nothing
                                      -- is recognized as NULL
-        !Format                  -- to apply code to all result columns
+        !Format                      -- to apply code to all result columns
     -- Postgres use one command `close` for closing both statements and
     -- portals, but we distinguish them
     | CloseStatement !StatementName

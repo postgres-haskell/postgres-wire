@@ -80,10 +80,9 @@ encodeClientMessage Terminate
 -- | Encodes single data values. Length `-1` indicates a NULL parameter value.
 -- No value bytes follow in the NULL case.
 {-# INLINE encodeValue #-}
-encodeValue :: Maybe B.ByteString -> Encode
+encodeValue :: Maybe Encode -> Encode
 encodeValue Nothing  = putWord32BE (-1)
-encodeValue (Just v) = putWord32BE (fromIntegral $ B.length v)
-                            <> putByteString v
+encodeValue (Just v) = putWord32BE (fromIntegral $ getEncodeLen v) <> v
 
 {-# INLINE encodeFormat #-}
 encodeFormat :: Format -> Encode

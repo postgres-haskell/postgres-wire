@@ -12,6 +12,7 @@ import Database.PostgreSQL.Driver.StatementStorage
 import Database.PostgreSQL.Driver.Query
 import Database.PostgreSQL.Driver.Error
 import Database.PostgreSQL.Protocol.Types
+import Database.PostgreSQL.Protocol.Codecs.Encoders as PE
 
 import Connection
 
@@ -50,7 +51,7 @@ testExtendedQuery = withConnectionCommonAll $ \c -> do
         statement = StatementSQL "SELECT $1 + $2"
     sendMessage rawConn $ Parse sname statement [Oid 23, Oid 23]
     sendMessage rawConn $
-        Bind pname sname Text [Just "1", Just "2"] Text
+        Bind pname sname Text [Just $ PE.bytea "1", Just $ PE.bytea "2"] Text
     sendMessage rawConn $ Execute pname noLimitToReceive
     sendMessage rawConn $ DescribeStatement sname
     sendMessage rawConn $ DescribePortal pname

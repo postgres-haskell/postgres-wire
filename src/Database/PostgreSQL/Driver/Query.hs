@@ -32,7 +32,7 @@ import Database.PostgreSQL.Driver.StatementStorage
 -- Public
 data Query = Query
     { qStatement    :: B.ByteString
-    , qValues       :: [(Oid, Maybe B.ByteString)]
+    , qValues       :: [(Oid, Maybe Encode)]
     , qParamsFormat :: Format
     , qResultFormat :: Format
     , qCachePolicy  :: CachePolicy

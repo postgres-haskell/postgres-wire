@@ -82,13 +82,13 @@ encodeMessage params = runEncode $
     bindMessage = Bind (PortalName "") stmtName Binary 
         (encodedParams params) Binary
     encodedParams (a, b, c, d, e, f, g) = 
-        [ Just . runEncode $ PE.bool a
-        , Just . runEncode $ PE.bytea b
-        , Just . runEncode $ PE.float8 c
-        , Just . runEncode $ PE.interval d
-        , Just . runEncode $ PE.numeric e
-        , Just . runEncode $ PE.timestamptz f
-        , Just . runEncode $ PE.uuid g
+        [ Just $ PE.bool a
+        , Just $ PE.bytea b
+        , Just $ PE.float8 c
+        , Just $ PE.interval d
+        , Just $ PE.numeric e
+        , Just $ PE.timestamptz f
+        , Just $ PE.uuid g
         ]
     parseMessage = Parse stmtName stmt oids
     stmtName = StatementName "_pw_statement_0010"

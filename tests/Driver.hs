@@ -23,6 +23,7 @@ import Database.PostgreSQL.Protocol.Store.Decode
 import Database.PostgreSQL.Protocol.Decoders
 
 import Database.PostgreSQL.Protocol.Codecs.Decoders
+import Database.PostgreSQL.Protocol.Codecs.Encoders as PE
 
 import Connection
 
@@ -45,11 +46,13 @@ testDriver = testGroup "Driver"
     ]
 
 makeQuery1 :: B.ByteString -> Query
-makeQuery1 n = Query "SELECT $1" [(Oid 23, Just n)] Text Text AlwaysCache
+makeQuery1 n = Query "SELECT $1" [(Oid 23, Just $ PE.bytea n )] 
+    Text Text AlwaysCache
 
 makeQuery2 :: B.ByteString -> B.ByteString -> Query
 makeQuery2 n1 n2 = Query "SELECT $1 + $2"
-    [(Oid 23, Just n1), (Oid 23, Just n2)] Text Text AlwaysCache
+    [(Oid 23, Just $ PE.bytea n1), (Oid 23, Just $ PE.bytea n2)] 
+    Text Text AlwaysCache
 
 fromRight :: Either e a -> a
 fromRight (Right v) = v
@@ -140,8 +143,10 @@ checkInvalidResult conn n = readNextData conn >>=
 testInvalidBatch :: IO ()
 testInvalidBatch = do
     let rightQuery = makeQuery1 "5"
-        q1 = Query "SEL $1" [(Oid 23, Just "5")] Text Text NeverCache
-        q2 = Query "SELECT $1" [(Oid 23, Just "a")]  Text Text NeverCache
+        q1 = Query "SEL $1" [(Oid 23, Just $ PE.bytea "5")] 
+            Text Text NeverCache
+        q2 = Query "SELECT $1" [(Oid 23, Just $ PE.bytea  "a")] 
+            Text Text NeverCache
         q4 = Query "SELECT $1" [] Text Text NeverCache
 
     assertInvalidBatch "Parse error" [q1]
