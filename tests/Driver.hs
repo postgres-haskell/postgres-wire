@@ -5,7 +5,7 @@ import Data.Foldable
 import Control.Monad
 import Data.Maybe
 import Data.Int
-import Data.Either
+import Data.Either hiding (fromRight)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as BS
