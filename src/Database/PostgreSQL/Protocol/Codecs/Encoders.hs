@@ -46,7 +46,9 @@ bytea = putByteString
 
 {-# INLINE char #-}
 char :: Char -> Encode
-char = putWord8 . fromIntegral . ord 
+char c
+  | ord(c) >= 128 = error "Character code must be below 128"
+  | otherwise = (putWord8 . fromIntegral . ord) c
 
 {-# INLINE date #-}
 date :: Day -> Encode

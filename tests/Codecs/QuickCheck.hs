@@ -95,7 +95,8 @@ testCodecsEncodeDecode :: TestTree
 testCodecsEncodeDecode = testGroup "Codecs property 'encode . decode = id'"
     [ mkCodecTest "bool" PGT.bool PE.bool PD.bool
     , mkCodecTest "bytea" PGT.bytea PE.bytea PD.bytea
-    , mkCodecTest "char" PGT.char PE.char PD.char
+    , mkCodecTest "char" PGT.char (PE.char . unAsciiChar)
+                                  (fmap AsciiChar <$> PD.char)
     , mkCodecTest "date" PGT.date PE.date PD.date
     , mkCodecTest "float4" PGT.float4 PE.float4 PD.float4
     , mkCodecTest "float8" PGT.float8 PE.float8 PD.float8
@@ -103,9 +104,9 @@ testCodecsEncodeDecode = testGroup "Codecs property 'encode . decode = id'"
     , mkCodecTest "int4" PGT.int4 PE.int4 PD.int4
     , mkCodecTest "int8" PGT.int8 PE.int8 PD.int8
     , mkCodecTest "interval" PGT.interval PE.interval PD.interval
-    , mkCodecTest "json" PGT.json (PE.bsJsonText . unJsonString ) 
+    , mkCodecTest "json" PGT.json (PE.bsJsonText . unJsonString)
                                   (fmap JsonString <$> PD.bsJsonText)
-    , mkCodecTest "jsonb" PGT.jsonb (PE.bsJsonBytes .unJsonString) 
+    , mkCodecTest "jsonb" PGT.jsonb (PE.bsJsonBytes . unJsonString)
                                     (fmap JsonString <$> PD.bsJsonBytes)
     , mkCodecTest "numeric" PGT.numeric PE.numeric PD.numeric
     , mkCodecTest "text" PGT.text PE.bsText PD.bsText
@@ -144,6 +145,12 @@ testCodecsEncodePrint = testGroup
 --
 -- Orphan instances
 --
+
+newtype AsciiChar = AsciiChar { unAsciiChar :: Char }
+    deriving (Show, Eq)
+
+instance Arbitrary AsciiChar where
+    arbitrary = AsciiChar <$> choose ('\0', '\127')
 
 -- Helper to generate valid json strings
 newtype JsonString = JsonString { unJsonString :: B.ByteString }
