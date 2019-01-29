@@ -17,6 +17,8 @@ module Database.PostgreSQL.Protocol.Codecs.Decoders
     , bsJsonBytes
     , numeric
     , bsText
+    , time
+    , timetz
     , timestamp
     , timestamptz
     , uuid
@@ -28,7 +30,7 @@ import Data.ByteString  (ByteString)
 import Data.Char        (chr)
 import Data.Int         (Int16, Int32, Int64)
 import Data.Scientific  (Scientific)
-import Data.Time        (Day, UTCTime, LocalTime, DiffTime)
+import Data.Time        (Day, UTCTime, LocalTime, DiffTime, TimeOfDay)
 import Data.UUID        (UUID, fromWords)
 import qualified Data.Vector as V
 
@@ -163,6 +165,17 @@ numeric _ = do
 {-# INLINE bsText #-}
 bsText :: FieldDecoder ByteString
 bsText = getByteString
+
+{-# INLINE time #-}
+time :: FieldDecoder TimeOfDay
+time _ = mcsToTimeOfDay <$> getInt64BE
+
+{-# INLINE timetz #-}
+timetz :: FieldDecoder TimeOfDay
+timetz _ = do
+  t <- getInt64BE
+  skipBytes 4
+  return $ mcsToTimeOfDay t
 
 {-# INLINE timestamp #-}
 timestamp :: FieldDecoder LocalTime

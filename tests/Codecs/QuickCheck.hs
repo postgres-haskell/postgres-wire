@@ -110,6 +110,8 @@ testCodecsEncodeDecode = testGroup "Codecs property 'encode . decode = id'"
                                     (fmap JsonString <$> PD.bsJsonBytes)
     , mkCodecTest "numeric" PGT.numeric PE.numeric PD.numeric
     , mkCodecTest "text" PGT.text PE.bsText PD.bsText
+    , mkCodecTest "time" PGT.time PE.time PD.time
+    , mkCodecTest "timetz" PGT.timetz PE.timetz PD.timetz
     , mkCodecTest "timestamp" PGT.timestamp PE.timestamp PD.timestamp
     , mkCodecTest "timestamptz" PGT.timestamptz PE.timestamptz PD.timestamptz
     , mkCodecTest "uuid" PGT.uuid PE.uuid PD.uuid
@@ -173,6 +175,9 @@ instance Arbitrary Day where
 
 instance Arbitrary DiffTime where
     arbitrary = secondsToDiffTime <$> choose (0, 86400 - 1)
+
+instance Arbitrary TimeOfDay where
+    arbitrary = timeToTimeOfDay <$> arbitrary
 
 instance Arbitrary LocalTime where
     arbitrary = LocalTime <$> arbitrary <*> fmap timeToTimeOfDay arbitrary
