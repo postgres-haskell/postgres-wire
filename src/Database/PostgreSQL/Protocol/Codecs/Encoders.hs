@@ -13,6 +13,7 @@ module Database.PostgreSQL.Protocol.Codecs.Encoders
     , bsJsonBytes
     , numeric
     , bsText
+    , time
     , timestamp
     , timestamptz
     , uuid
@@ -23,7 +24,7 @@ import Data.Char        (ord)
 import Data.Int         (Int16, Int32, Int64)
 import Data.Monoid      ((<>))
 import Data.Scientific  (Scientific)
-import Data.Time        (Day, UTCTime, LocalTime, DiffTime)
+import Data.Time        (Day, UTCTime, LocalTime, DiffTime, TimeOfDay)
 import Data.UUID        (UUID, toWords)
 
 import Database.PostgreSQL.Protocol.Store.Encode
@@ -103,6 +104,10 @@ numeric n =
 {-# INLINE bsText #-}
 bsText :: ByteString -> Encode
 bsText = putByteString
+
+{-# INLINE time #-}
+time :: TimeOfDay -> Encode
+time = putInt64BE . timeOfDayToMcs
 
 {-# INLINE timestamp #-}
 timestamp :: LocalTime -> Encode

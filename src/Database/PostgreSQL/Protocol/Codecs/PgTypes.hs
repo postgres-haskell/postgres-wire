@@ -18,6 +18,7 @@ module Database.PostgreSQL.Protocol.Codecs.PgTypes
     , jsonb
     , numeric
     , text
+    , time
     , timestamp
     , timestamptz
     , uuid 
@@ -87,6 +88,9 @@ numeric = mkOids 1700 1231
 
 text :: Oids              
 text = mkOids 25 1009    
+
+time :: Oids
+time = mkOids 1083 1183
 
 timestamp :: Oids       
 timestamp = mkOids 1114 1115 

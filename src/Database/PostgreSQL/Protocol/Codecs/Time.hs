@@ -2,9 +2,11 @@ module Database.PostgreSQL.Protocol.Codecs.Time
     ( dayToPgj
     , utcToMicros
     , localTimeToMicros
+    , timeOfDayToMcs
     , pgjToDay
     , microsToUTC
     , microsToLocalTime
+    , mcsToTimeOfDay
     , intervalToDiffTime
     , diffTimeToInterval
     ) where
