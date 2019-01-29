@@ -111,6 +111,7 @@ testCodecsEncodeDecode = testGroup "Codecs property 'encode . decode = id'"
     , mkCodecTest "numeric" PGT.numeric PE.numeric PD.numeric
     , mkCodecTest "text" PGT.text PE.bsText PD.bsText
     , mkCodecTest "time" PGT.time PE.time PD.time
+    , mkCodecTest "timetz" PGT.timetz PE.timetz PD.timetz
     , mkCodecTest "timestamp" PGT.timestamp PE.timestamp PD.timestamp
     , mkCodecTest "timestamptz" PGT.timestamptz PE.timestamptz PD.timestamptz
     , mkCodecTest "uuid" PGT.uuid PE.uuid PD.uuid

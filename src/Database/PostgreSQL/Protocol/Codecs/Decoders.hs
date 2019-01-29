@@ -18,6 +18,7 @@ module Database.PostgreSQL.Protocol.Codecs.Decoders
     , numeric
     , bsText
     , time
+    , timetz
     , timestamp
     , timestamptz
     , uuid
@@ -168,6 +169,13 @@ bsText = getByteString
 {-# INLINE time #-}
 time :: FieldDecoder TimeOfDay
 time _ = mcsToTimeOfDay <$> getInt64BE
+
+{-# INLINE timetz #-}
+timetz :: FieldDecoder TimeOfDay
+timetz _ = do
+  t <- getInt64BE
+  skipBytes 4
+  return $ mcsToTimeOfDay t
 
 {-# INLINE timestamp #-}
 timestamp :: FieldDecoder LocalTime

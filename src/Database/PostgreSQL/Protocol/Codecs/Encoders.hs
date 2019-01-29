@@ -14,6 +14,7 @@ module Database.PostgreSQL.Protocol.Codecs.Encoders
     , numeric
     , bsText
     , time
+    , timetz
     , timestamp
     , timestamptz
     , uuid
@@ -48,7 +49,7 @@ bytea = putByteString
 {-# INLINE char #-}
 char :: Char -> Encode
 char c
-  | ord(c) >= 128 = error "Character code must be below 128"
+  | ord c >= 128 = error "Character code must be below 128"
   | otherwise = (putWord8 . fromIntegral . ord) c
 
 {-# INLINE date #-}
@@ -108,6 +109,10 @@ bsText = putByteString
 {-# INLINE time #-}
 time :: TimeOfDay -> Encode
 time = putInt64BE . timeOfDayToMcs
+
+{-# INLINE timetz #-}
+timetz :: TimeOfDay -> Encode
+timetz t = putInt64BE (timeOfDayToMcs t) <> putInt32BE 0
 
 {-# INLINE timestamp #-}
 timestamp :: LocalTime -> Encode

@@ -7,8 +7,10 @@ module Database.PostgreSQL.Protocol.Codecs.Time
     , microsToUTC
     , microsToLocalTime
     , mcsToTimeOfDay
+    , mcsToDiffTime
     , intervalToDiffTime
     , diffTimeToInterval
+    , diffTimeToMcs
     ) where
 
 import Data.Int  (Int64, Int32, Int64)
