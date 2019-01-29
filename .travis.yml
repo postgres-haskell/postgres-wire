@@ -1,5 +1,5 @@
 # Use new container infrastructure to enable caching
-dist: trusty
+dist: xenial
 sudo: false
 
 # Do not choose a language; we provide our own build tools.
@@ -8,8 +8,9 @@ language: generic
 os:
   - linux
 env:
-  - STACK_YAML=stack-ghc7.10.3.yaml
-  - STACK_YAML=stack-ghc8.0.2.yaml
+  - STACK_YAML=stack-ghc8.2.2.yaml
+  - STACK_YAML=stack-ghc8.4.4.yaml
+  - STACK_YAML=stack-ghc8.6.3.yaml
 
 services:
   - postgresql
@@ -24,7 +25,7 @@ addons:
   apt:
     packages:
       - libgmp-dev
-  postgresql: "9.6"
+  postgresql: "10"
 
 before_install:
   # Download and unpack the stack executable

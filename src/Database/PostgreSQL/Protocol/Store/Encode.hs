@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 module Database.PostgreSQL.Protocol.Store.Encode 
     ( Encode
     , getEncodeLen
@@ -26,14 +27,21 @@ import Data.ByteString.Internal (toForeignPtr)
 import Data.Store.Core          (Poke(..), unsafeEncodeWith, pokeStatePtr,
                                  pokeFromForeignPtr)
 
+import qualified Data.Semigroup as Sem
+
 data Encode = Encode {-# UNPACK #-} !Int !(Poke ())
+
+instance Sem.Semigroup Encode where
+  {-# INLINE (<>) #-}
+  (Encode len1 f1) <> (Encode len2 f2) = Encode (len1 + len2) (f1 *> f2)
 
 instance Monoid Encode where
     {-# INLINE mempty #-}
     mempty = Encode 0 . Poke $ \_ offset -> pure (offset, ())
+#if !(MIN_VERSION_base(4,11,0))
+    mappend = (Sem.<>)
+#endif
 
-    {-# INLINE mappend #-}
-    (Encode len1 f1) `mappend` (Encode len2 f2) = Encode (len1 + len2) (f1 *> f2)
 
 instance Show Encode where
     show (Encode len _) = "Encode instance of length " ++ show len

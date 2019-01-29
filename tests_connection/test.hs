@@ -39,7 +39,7 @@ testConnection name confContent = testCase name $ withPghba confContent $
         }
 
 pghbaFilename :: FilePath
-pghbaFilename = "/etc/postgresql/9.5/main/pg_hba.conf"
+pghbaFilename = "/etc/postgresql/10/main/pg_hba.conf"
 
 withPghba :: B.ByteString -> IO a -> IO a
 withPghba confContent action = do
