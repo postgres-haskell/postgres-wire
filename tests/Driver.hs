@@ -58,10 +58,10 @@ fromRight :: Either e a -> a
 fromRight (Right v) = v
 fromRight _         = error "fromRight"
 
-fromMessage :: Either e DataRows -> B.ByteString
+fromMessage :: Either e B.ByteString -> B.ByteString
 -- TODO
--- 5 bytes -header, 2 bytes -count, 4 bytes - length
-fromMessage (Right rows) = B.drop 11 $ flattenDataRows rows
+-- 2 bytes -count, 4 bytes - length
+fromMessage (Right row) = B.drop 6 $ row
 fromMessage _            = error "from message"
 
 -- | Single batch.
@@ -121,9 +121,8 @@ testQueryWithoutResult = assertQueryNoData $
 assertQueryNoData :: Query -> IO ()
 assertQueryNoData q = withConnection $ \c -> do
     sendBatchAndSync c [q]
-    r <- fromRight <$> readNextData c
-    waitReadyForQuery c
-    Empty @=? r
+    r <- fromRight <$> readAllData c
+    [] @=? r
 
 -- | Asserts that all the received data messages are in form (Right _)
 checkRightResult :: Connection -> Int -> Assertion
@@ -135,9 +134,11 @@ checkRightResult conn n = readNextData conn >>=
 -- | Asserts that (Left _) as result exists in the received data messages.
 checkInvalidResult :: Connection -> Int -> Assertion
 checkInvalidResult conn 0 = assertFailure "Result is right"
-checkInvalidResult conn n = readNextData conn >>=
-    either (const $ pure ())
-           (const $ checkInvalidResult conn (n -1))
+checkInvalidResult conn n = do
+    msgs <- collectUntilReadyForQuery conn
+    let r = (length . findAllErrors) <$> msgs
+    either (const $ assertFailure "ReceiverError") (\x -> assertBool "Got errors" (x > 0)) r
+
 
 -- | Diffirent invalid queries in batches.
 testInvalidBatch :: IO ()
@@ -169,7 +170,6 @@ testValidAfterError = withConnection $ \c -> do
         invalidQuery = Query "SELECT $1" []  Text Text NeverCache
     sendBatchAndSync c [invalidQuery]
     checkInvalidResult c 1
-    waitReadyForQuery c
 
     sendBatchAndSync c [rightQuery]
     r <- readNextData c
@@ -178,7 +178,7 @@ testValidAfterError = withConnection $ \c -> do
 
 -- | Describes usual statement.
 testDescribeStatement :: IO ()
-testDescribeStatement = withConnectionCommon $ \c -> do
+testDescribeStatement = withConnection $ \c -> do
     r <- describeStatement c $
                "select typname, typnamespace, typowner, typlen, typbyval,"
             <> "typcategory, typispreferred, typisdefined, typdelim, typrelid,"
@@ -188,21 +188,21 @@ testDescribeStatement = withConnectionCommon $ \c -> do
 
 -- | Describes statement that returns no data.
 testDescribeStatementNoData :: IO ()
-testDescribeStatementNoData = withConnectionCommon $ \c -> do
+testDescribeStatementNoData = withConnection $ \c -> do
     r <- fromRight <$> describeStatement c "SET client_encoding TO UTF8"
     assertBool "Should be empty" $ null (fst r)
     assertBool "Should be empty" $ null (snd r)
 
 -- | Describes statement that is empty string.
 testDescribeStatementEmpty :: IO ()
-testDescribeStatementEmpty = withConnectionCommon $ \c -> do
+testDescribeStatementEmpty = withConnection $ \c -> do
     r <- fromRight <$> describeStatement c ""
     assertBool "Should be empty" $ null (fst r)
     assertBool "Should be empty" $ null (snd r)
 
 -- | Query using simple query protocol.
 testSimpleQuery :: IO ()
-testSimpleQuery = withConnectionCommon $ \c -> do
+testSimpleQuery = withConnection $ \c -> do
     r <- sendSimpleQuery c $
                "DROP TABLE IF EXISTS a;"
             <> "CREATE TABLE a(v int);"
@@ -236,8 +236,7 @@ testPreparedStatementCache  = withConnection $ \c -> do
 testLargeQuery :: IO ()
 testLargeQuery = withConnection $ \c -> do
     sendBatchAndSync c [Query largeStmt [] Text Text NeverCache ]
-    r <- readNextData c
-    waitReadyForQuery c
+    r <- readAllData c
     assertBool "Should be Right" $ isRight r
   where
     largeStmt = "select typname, typnamespace, typowner, typlen, typbyval,"
@@ -248,16 +247,15 @@ testCorrectDatarows :: IO ()
 testCorrectDatarows = withConnection $ \c -> do
     let stmt = "SELECT * FROM generate_series(1, 1000)"
     sendBatchAndSync c [Query stmt [] Text Text NeverCache]
-    r <- readNextData c
+    r <- readAllData c
     case r of
         Left e -> error $ show e
         Right rows -> do
-            map (BS.pack . show ) [1 .. 1000] @=? V.toList (decodeManyRows decodeDataRow rows)
+            map (BS.pack . show ) [1 .. 1000] @=? (decodeManyRows decodeDataRow rows)
             countDataRows rows @=? 1000
   where
     -- TODO Right parser later
     decodeDataRow :: Decode B.ByteString
     decodeDataRow = do
-        decodeHeader
         getInt16BE
         getByteString . fromIntegral =<< getInt32BE

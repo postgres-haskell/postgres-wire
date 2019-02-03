@@ -140,26 +140,25 @@ loopExtractDataRows readMoreAction callback = go "" Empty
 
 --  It is better that Decode throws exception on invalid input
 {-# INLINABLE decodeOneRow #-}
-decodeOneRow :: Decode a -> DataRows -> a
-decodeOneRow dec Empty                         = snd $ runDecode dec ""
-decodeOneRow dec (DataRows (DataChunk _ bs) _) = snd $ runDecode dec bs
+decodeOneRow :: Decode a -> B.ByteString -> a
+decodeOneRow dec bs = snd $ runDecode dec bs
 
 {-# INLINABLE decodeManyRows #-}
-decodeManyRows :: Decode a -> DataRows -> V.Vector a
-decodeManyRows dec dr = unsafePerformIO $ do
-    vec <- MV.unsafeNew . fromIntegral $ countDataRows dr
-    let go startInd Empty = pure ()
-        go startInd (DataRows (DataChunk len bs) nextDr) = do
-            let endInd = startInd + fromIntegral len
-            runDecodeIO 
-                (traverse_ (writeDec vec) [startInd .. (endInd  -1)]) 
-                bs
-            go endInd nextDr
-    go 0 dr
-    V.unsafeFreeze vec
-  where
-    {-# INLINE writeDec #-}
-    writeDec vec pos = dec >>= embedIO . MV.unsafeWrite vec pos
+decodeManyRows :: Decode a -> [B.ByteString] -> [a]
+decodeManyRows dec = map (decodeOneRow dec)
+    --vec <- MV.unsafeNew . fromIntegral $ countDataRows dr
+    --let go startInd Empty = pure ()
+        --go startInd (DataRows (DataChunk len bs) nextDr) = do
+            --let endInd = startInd + fromIntegral len
+            --runDecodeIO 
+                --(traverse_ (writeDec vec) [startInd .. (endInd  -1)]) 
+                --bs
+            --go endInd nextDr
+    --go 0 dr
+    --V.unsafeFreeze vec
+  --where
+    --[># INLINE writeDec #<]
+    --writeDec vec pos = dec >>= embedIO . MV.unsafeWrite vec pos
 
 ---
 -- Utils
@@ -183,8 +182,8 @@ reverseDataRows :: DataRows -> DataRows
 reverseDataRows = foldlDataRows (flip chunk) Empty
 
 {-# INLINE countDataRows #-}
-countDataRows :: DataRows -> Word
-countDataRows = foldlDataRows (\acc (DataChunk c _) -> acc + c) 0
+countDataRows :: [B.ByteString] -> Int
+countDataRows = length
 
 -- FIXME delete later
 -- | For testing only

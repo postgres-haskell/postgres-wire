@@ -16,6 +16,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
 
 import Database.PostgreSQL.Driver
+import Database.PostgreSQL.Driver.Query
 import Database.PostgreSQL.Protocol.DataRows
 import Database.PostgreSQL.Protocol.Types
 import Database.PostgreSQL.Protocol.Store.Encode
@@ -40,6 +41,7 @@ makeCodecProperty c oid encoder fd v = monadicIO $ do
         decoder = PD.dataRowHeader *> PD.getNonNullable fd
     r <- run $ do
         sendBatchAndSync c [q]
+        -- msgs <- collectUntilReadyForQuery c
         dr <- readNextData c
         waitReadyForQuery c
         either (error . show) (pure . decodeOneRow decoder) dr

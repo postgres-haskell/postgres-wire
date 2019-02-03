@@ -172,8 +172,7 @@ data ServerMessage
     | BindComplete
     | CloseComplete
     | CommandComplete !CommandResult
-    -- DataRows lays in separate data type
-    | DataRow
+    | DataRow !ByteString
     | EmptyQueryResponse
     | ErrorResponse !ErrorDesc
     | NoData

@@ -1,8 +1,6 @@
 module Database.PostgreSQL.Driver.Connection 
     ( -- * Connection types
-      AbsConnection(..)
-    , Connection
-    , ConnectionCommon
+      Connection(..)
     , ServerMessageFilter
     , NotificationHandler
     -- * Connection parameters
@@ -11,8 +9,7 @@ module Database.PostgreSQL.Driver.Connection
     , getIntegerDatetimes
     -- * Work with connection
     , connect
-    , connectCommon
-    , connectCommon'
+    , connect'
     , sendStartMessage
     , sendMessage
     , sendEncode
@@ -53,21 +50,18 @@ import Database.PostgreSQL.Driver.Settings
 import Database.PostgreSQL.Driver.StatementStorage
 import Database.PostgreSQL.Driver.RawConnection
 
+type InChan = TQueue (Either ReceiverException ServerMessage)
+
 -- | Public
 -- Connection parametrized by message type in chan.
-data AbsConnection mt = AbsConnection
+data Connection = Connection
     { connRawConnection     :: !RawConnection
     , connReceiverThread    :: !(Weak ThreadId)
     , connStatementStorage  :: !StatementStorage
     , connParameters        :: !ConnectionParameters
-    , connOutChan           :: !(TQueue (Either ReceiverException mt))
+    , connChan              :: !InChan
     }
 
-type Connection       = AbsConnection DataMessage
-type ConnectionCommon = AbsConnection ServerMessage
-
-type InDataChan = TQueue (Either ReceiverException DataMessage)
-type InAllChan  = TQueue (Either ReceiverException ServerMessage)
 
 type ServerMessageFilter = ServerMessage -> Bool
 type NotificationHandler = Notification -> IO ()
@@ -87,37 +81,32 @@ data ConnectionParameters = ConnectionParameters
 -- Getting information about connection
 
 -- | Returns a server version of the current connection.
-getServerVersion :: AbsConnection c -> ServerVersion
+getServerVersion :: Connection -> ServerVersion
 getServerVersion = paramServerVersion . connParameters
 
 -- | Returns a server encoding of the current connection.
-getServerEncoding :: AbsConnection c -> B.ByteString
+getServerEncoding :: Connection -> B.ByteString
 getServerEncoding = paramServerEncoding . connParameters
 
 -- | Returns whether server uses integer datetimes.
-getIntegerDatetimes :: AbsConnection c -> Bool
+getIntegerDatetimes :: Connection -> Bool
 getIntegerDatetimes = paramIntegerDatetimes . connParameters
 
 -- | Public
-connect :: ConnectionSettings -> IO (Either Error Connection)
-connect settings = connectWith settings $ \rawConn params ->
-    buildConnection rawConn params
-        (receiverThread rawConn)
-
-connectCommon
+connect
     :: ConnectionSettings
-    -> IO (Either Error ConnectionCommon)
-connectCommon settings = connectCommon' settings defaultFilter
+    -> IO (Either Error Connection)
+connect settings = connect' settings defaultFilter
 
--- | Like 'connectCommon', but allows specify a message filter.
+-- | Like 'connect', but allows specify a message filter.
 -- Useful for testing.
-connectCommon'
+connect'
     :: ConnectionSettings
     -> ServerMessageFilter
-    -> IO (Either Error ConnectionCommon)
-connectCommon' settings msgFilter = connectWith settings $ \rawConn params ->
+    -> IO (Either Error Connection)
+connect' settings msgFilter = connectWith settings $ \rawConn params ->
     buildConnection rawConn params
-        (\chan -> receiverThreadCommon rawConn chan
+        (\chan -> receiverThread rawConn chan
                     msgFilter defaultNotificationHandler)
 
 -- Low-level sending functions
@@ -134,13 +123,13 @@ sendMessage rawConn msg = void $
     rSend rawConn . runEncode $ encodeClientMessage msg
 
 {-# INLINE sendEncode #-}
-sendEncode :: AbsConnection c -> Encode -> IO ()
+sendEncode :: Connection -> Encode -> IO ()
 sendEncode conn = void . rSend (connRawConnection conn) . runEncode
 
 connectWith
     :: ConnectionSettings
-    -> (RawConnection -> ConnectionParameters -> IO (AbsConnection c))
-    -> IO (Either Error (AbsConnection c))
+    -> (RawConnection -> ConnectionParameters -> IO Connection)
+    -> IO (Either Error Connection)
 connectWith settings buildAction =
     bracketOnError
         (createRawConnection settings)
@@ -199,8 +188,8 @@ buildConnection
     :: RawConnection
     -> ConnectionParameters
     -- action in receiver thread
-    -> (TQueue (Either ReceiverException c) -> IO ())
-    -> IO (AbsConnection c)
+    -> (InChan -> IO ())
+    -> IO Connection
 buildConnection rawConn connParams receiverAction = do
     chan    <- newTQueueIO
     storage <- newStatementStorage
@@ -215,12 +204,12 @@ buildConnection rawConn connParams receiverAction = do
         labelThread tid "postgres-wire receiver"
         weakTid <- mkWeakThreadId tid
 
-        pure AbsConnection
+        pure Connection
             { connRawConnection    = rawConn
             , connReceiverThread   = weakTid
             , connStatementStorage = storage
             , connParameters       = connParams
-            , connOutChan          = chan
+            , connChan          = chan
             }
 
 -- | Parses connection parameters.
@@ -257,7 +246,7 @@ handshakeTls :: RawConnection ->  IO ()
 handshakeTls _ = pure ()
 
 -- | Closes connection. Does not throw exceptions when socket is closed.
-close :: AbsConnection c -> IO ()
+close :: Connection -> IO ()
 close conn = do
     maybe (pure ()) killThread =<< deRefWeak (connReceiverThread conn)
     sendMessage (connRawConnection conn) Terminate `catch` handlerEx
@@ -267,25 +256,19 @@ close conn = do
                 | otherwise               = throwIO e
 
 -- | Any exception prevents thread from future work.
-receiverThread :: RawConnection -> InDataChan -> IO ()
-receiverThread rawConn dataChan = loopExtractDataRows
-    (\bs -> rReceive rawConn bs 4096)
-    (writeChan dataChan . Right)
-
--- | Any exception prevents thread from future work.
-receiverThreadCommon
+receiverThread
     :: RawConnection
-    -> InAllChan
+    -> InChan
     -> ServerMessageFilter
     -> NotificationHandler
     -> IO ()
-receiverThreadCommon rawConn chan msgFilter ntfHandler = go ""
+receiverThread rawConn chan msgFilter ntfHandler = go ""
   where
     go bs = do
         (rest, msg) <- decodeNextServerMessage bs readMoreAction
         handler msg >> go rest
 
-    readMoreAction = (\bs -> rReceive rawConn bs 4096)
+    readMoreAction bs = rReceive rawConn bs 4096
     handler msg = do
         dispatchIfNotification msg ntfHandler
         when (msgFilter msg) $ writeChan chan $ Right msg
@@ -316,7 +299,7 @@ defaultFilter msg = case msg of
     -- messages affecting data handled in dispatcher
     CommandComplete{}      -> False
     -- messages affecting data handled in dispatcher
-    DataRow{}              -> False
+    DataRow{}              -> True
     -- messages affecting data handled in dispatcher
     EmptyQueryResponse     -> False
     -- We need collect all errors to know whether the whole command is successful

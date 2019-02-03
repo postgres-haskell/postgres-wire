@@ -5,11 +5,14 @@ module Database.PostgreSQL.Driver.Query
     , sendBatchAndSync
     , sendSync
     , readNextData
+    , readAllData
     , waitReadyForQuery
     -- * Connection common
     , sendSimpleQuery
     , describeStatement
     , collectUntilReadyForQuery
+    , findFirstError
+    , findAllErrors
     ) where
 
 import Control.Concurrent.STM.TQueue (TQueue, readTQueue )
@@ -54,31 +57,34 @@ sendSync conn = sendEncode conn $ encodeClientMessage Sync
 
 -- | Public
 {-# INLINABLE readNextData #-}
-readNextData :: Connection -> IO (Either Error DataRows)
+readNextData :: Connection -> IO (Either Error ByteString)
 readNextData conn =
-    readChan (connOutChan conn) >>=
+    readChan (connChan conn) >>=
     either (pure . Left . ReceiverError) handleDataMessage
   where
     handleDataMessage msg = case msg of
-        (DataError e)      -> pure . Left $ PostgresError e
-        (DataMessage rows) -> pure . Right $ rows
-        DataReady          -> throwIncorrectUsage
-            "Expected DataRow message, but got ReadyForQuery"
+        DataRow bs -> pure . Right $ bs
+        ReadyForQuery _ -> throwIncorrectUsage "Expected DataRow, but got ReadyForQuery"
+        _ -> readNextData conn
+
+{-# INLINABLE readAllData #-}
+readAllData :: Connection -> IO (Either Error [ByteString])
+readAllData conn = do
+  msgs <- collectUntilReadyForQuery conn
+  return $ msgs >>= (\msgs -> return [bs | DataRow bs <- msgs])
 
 {-# INLINABLE waitReadyForQuery #-}
 waitReadyForQuery :: Connection -> IO (Either Error ())
 waitReadyForQuery conn =
-    readChan (connOutChan conn) >>=
+    readChan (connChan conn) >>=
     either (pure . Left . ReceiverError) handleDataMessage
   where
     handleDataMessage msg = case msg of
-        (DataError e) -> do
-            -- We should wait for ReadyForQuery anyway.
-            waitReadyForQuery conn
-            pure . Left $ PostgresError e
-        (DataMessage _)   -> throwIncorrectUsage
-            "Expected ReadyForQuery, but got DataRow message"
-        DataReady        -> pure $ Right ()
+        ReadyForQuery _ -> pure $ Right ()
+        DataRow _ -> throwIncorrectUsage "Expected ReadyForQuery, but got DataRow message"
+        ErrorResponse e -> do
+          waitReadyForQuery conn
+          pure . Left $ PostgresError e
 
 -- Helper
 {-# INLINE sendBatchEndBy #-}
@@ -115,7 +121,7 @@ constructBatch conn = fmap fold . traverse constructSingle
         pure $ parseMessage <> bindMessage <> executeMessage
 
 -- | Public
-sendSimpleQuery :: ConnectionCommon -> ByteString -> IO (Either Error ())
+sendSimpleQuery :: Connection -> ByteString -> IO (Either Error ())
 sendSimpleQuery conn q = do
     sendMessage (connRawConnection conn) $ SimpleQuery (StatementSQL q)
     (checkErrors =<<) <$> collectUntilReadyForQuery conn
@@ -125,7 +131,7 @@ sendSimpleQuery conn q = do
 
 -- | Public
 describeStatement
-    :: ConnectionCommon
+    :: Connection
     -> ByteString
     -> IO (Either Error (Vector Oid, Vector FieldDescription))
 describeStatement conn stmt = do
@@ -149,10 +155,10 @@ describeStatement conn stmt = do
 
 -- Collects all messages preceding `ReadyForQuery`.
 collectUntilReadyForQuery
-    :: ConnectionCommon
+    :: Connection
     -> IO (Either Error [ServerMessage])
 collectUntilReadyForQuery conn = do
-    msg <- readChan $ connOutChan conn
+    msg <- readChan $ connChan conn
     case msg of
         Left e                -> pure $ Left $ ReceiverError e
         Right ReadyForQuery{} -> pure $ Right []
@@ -163,6 +169,9 @@ findFirstError :: [ServerMessage] -> Maybe ErrorDesc
 findFirstError []                       = Nothing
 findFirstError (ErrorResponse desc : _) = Just desc
 findFirstError (_ : xs)                 = findFirstError xs
+
+findAllErrors :: [ServerMessage] -> [ErrorDesc]
+findAllErrors msgs = [e | ErrorResponse e <- msgs]
 
 {-# INLINE readChan #-}
 readChan :: TQueue a -> IO a

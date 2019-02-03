@@ -26,7 +26,7 @@ testProtocolMessages = testGroup "Protocol messages"
 
 -- | Tests multi-command simple query.
 testSimpleQuery :: IO ()
-testSimpleQuery = withConnectionCommonAll $ \c -> do
+testSimpleQuery = withConnectionAll $ \c -> do
     let rawConn = connRawConnection c
         statement = StatementSQL $
                "DROP TABLE IF EXISTS a;"
@@ -44,7 +44,7 @@ testSimpleQuery = withConnectionCommonAll $ \c -> do
 
 -- Tests all messages that are permitted in extended query protocol.
 testExtendedQuery :: IO ()
-testExtendedQuery = withConnectionCommonAll $ \c -> do
+testExtendedQuery = withConnectionAll $ \c -> do
     let rawConn = connRawConnection c
         sname = StatementName "statement"
         pname = PortalName "portal"
@@ -88,7 +88,7 @@ testExtendedQuery = withConnectionCommonAll $ \c -> do
 -- | Tests that PostgreSQL returns `EmptyQueryResponse` when a query
 -- string is empty.
 testExtendedEmptyQuery :: IO ()
-testExtendedEmptyQuery = withConnectionCommonAll $ \c -> do
+testExtendedEmptyQuery = withConnectionAll $ \c -> do
     let rawConn   = connRawConnection c
         sname     = StatementName "statement"
         pname     = PortalName ""
@@ -108,7 +108,7 @@ testExtendedEmptyQuery = withConnectionCommonAll $ \c -> do
 -- | Tests that `desribe statement` receives NoData when a statement
 -- has no data in the result.
 testExtendedQueryNoData :: IO ()
-testExtendedQueryNoData = withConnectionCommonAll $ \c -> do
+testExtendedQueryNoData = withConnectionAll $ \c -> do
     let rawConn   = connRawConnection c
         sname     = StatementName "statement"
         statement = StatementSQL "SET client_encoding to UTF8"

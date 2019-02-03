@@ -9,15 +9,10 @@ import Database.PostgreSQL.Driver.Settings
 withConnection :: (Connection -> IO a) -> IO a
 withConnection = bracket (getConnection <$> connect defaultSettings) close
 
--- | Creates a common connection.
-withConnectionCommon :: (ConnectionCommon -> IO a) -> IO a
-withConnectionCommon = bracket
-    (getConnection <$> connectCommon defaultSettings) close
-
 -- | Creates connection than collects all server messages in chan.
-withConnectionCommonAll :: (ConnectionCommon -> IO a) -> IO a
-withConnectionCommonAll = bracket
-    (getConnection <$> connectCommon' defaultSettings filterAllowedAll) close
+withConnectionAll :: (Connection -> IO a) -> IO a
+withConnectionAll = bracket
+    (getConnection <$> connect' defaultSettings filterAllowedAll) close
 
 defaultSettings = defaultConnectionSettings
     { settingsHost     = "localhost"
@@ -26,7 +21,7 @@ defaultSettings = defaultConnectionSettings
     , settingsPassword = ""
     }
 
-getConnection :: Either Error (AbsConnection c)-> AbsConnection c
+getConnection :: Either Error Connection -> Connection
 getConnection (Left e) = error $ "Connection error " ++ show e
 getConnection (Right c) = c
 

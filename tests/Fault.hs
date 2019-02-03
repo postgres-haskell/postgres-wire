@@ -56,8 +56,8 @@ testBatchNextData interruptAction = withConnection $ \c -> do
     r <- readNextData c
     assertUnexpected r
 
-testSimpleQuery :: (ConnectionCommon -> IO ()) -> IO ()
-testSimpleQuery interruptAction = withConnectionCommon $ \c -> do
+testSimpleQuery :: (Connection -> IO ()) -> IO ()
+testSimpleQuery interruptAction = withConnection $ \c -> do
     asyncVar <- async $ sendSimpleQuery c "SELECT pg_sleep(5)"
     -- Make sure that query was sent.
     threadDelay 500000
@@ -73,26 +73,26 @@ testBatchReceiverKilledBefore = withConnection $ \c -> do
     assertUnexpected r
 
 testSimpleQueryReceiverKilledBefore :: IO ()
-testSimpleQueryReceiverKilledBefore = withConnectionCommon $ \c -> do
+testSimpleQueryReceiverKilledBefore = withConnection $ \c -> do
     killReceiverThread c
     asyncVar <- async $ sendSimpleQuery c "SELECT pg_sleep(5)"
     r <- wait asyncVar
     assertUnexpected r
 
-closeSocket :: AbsConnection c -> IO ()
+closeSocket :: Connection -> IO ()
 closeSocket = rClose . connRawConnection
 
-throwSocketException :: AbsConnection c -> IO ()
+throwSocketException :: Connection -> IO ()
 throwSocketException conn = do
     let exc = SocketException 2
     maybe (pure ()) (`throwTo` exc) =<< deRefWeak (connReceiverThread conn)
 
-throwOtherException :: AbsConnection c -> IO ()
+throwOtherException :: Connection -> IO ()
 throwOtherException conn = do
     let exc = PatternMatchFail "custom exc"
     maybe (pure ()) (`throwTo` exc) =<< deRefWeak (connReceiverThread conn)
 
-killReceiverThread :: AbsConnection c -> IO ()
+killReceiverThread :: Connection -> IO ()
 killReceiverThread conn =
     maybe (pure ()) killThread =<< deRefWeak (connReceiverThread conn)
 

@@ -40,12 +40,10 @@ import Database.PostgreSQL.Protocol.Codecs.Time
 import Database.PostgreSQL.Protocol.Codecs.Numeric
 
 -- | Decodes DataRow header.
--- 1 byte - Message Header
--- 4 bytes - Message length
 -- 2 bytes - count of columns in the DataRow
 {-# INLINE dataRowHeader #-}
 dataRowHeader :: Decode ()
-dataRowHeader = skipBytes 7
+dataRowHeader = skipBytes 2
 
 {-# INLINE fieldLength #-}
 fieldLength :: Decode Int

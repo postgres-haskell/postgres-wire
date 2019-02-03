@@ -20,9 +20,12 @@ module Database.PostgreSQL.Driver
     , sendBatchAndSync
     , sendBatchAndFlush
     , readNextData
+    , readAllData
     , waitReadyForQuery
     , sendSimpleQuery
     , describeStatement
+    , findFirstError
+    , findAllErrors
     -- * Errors
     , Error(..)
     , AuthError(..)
