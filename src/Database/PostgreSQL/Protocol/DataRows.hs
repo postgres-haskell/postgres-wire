@@ -183,6 +183,8 @@ reverseDataRows = foldlDataRows (flip chunk) Empty
 
 {-# INLINE countDataRows #-}
 countDataRows :: [B.ByteString] -> Int
+-- quote from docs: ... This will be followed by a DataRow message for each row being returned to the frontend.
+--   So for each DataRow message we can be sure that ByteString payload contains encoded data for exactly one row.
 countDataRows = length
 
 -- FIXME delete later

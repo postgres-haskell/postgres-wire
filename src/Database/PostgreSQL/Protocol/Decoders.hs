@@ -78,7 +78,7 @@ decodeServerMessage (Header c len) = case chr $ fromIntegral c of
     -- Dont parse data rows here.
     'D' -> do
       bs <- getByteString len
-      pure $ DataRow bs
+      pure $! DataRow bs
     'I' -> pure EmptyQueryResponse
     'E' -> ErrorResponse <$>
         (getByteString len >>=

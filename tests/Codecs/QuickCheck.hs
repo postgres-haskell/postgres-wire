@@ -41,7 +41,6 @@ makeCodecProperty c oid encoder fd v = monadicIO $ do
         decoder = PD.dataRowHeader *> PD.getNonNullable fd
     r <- run $ do
         sendBatchAndSync c [q]
-        -- msgs <- collectUntilReadyForQuery c
         dr <- readNextData c
         waitReadyForQuery c
         either (error . show) (pure . decodeOneRow decoder) dr
